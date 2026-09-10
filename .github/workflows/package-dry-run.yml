@@ -41,7 +41,8 @@ jobs:
           shopt -s nullglob
           tarballs=(package-artifacts/*.tgz)
           test "${#tarballs[@]}" -eq 1
-          npm publish --dry-run --ignore-scripts --access restricted "${tarballs[0]}"
+          npm publish --dry-run --ignore-scripts --access restricted \
+            "$GITHUB_WORKSPACE/${tarballs[0]}"
       - uses: actions/upload-artifact@v4
         with:
           name: npm-package-dry-run
