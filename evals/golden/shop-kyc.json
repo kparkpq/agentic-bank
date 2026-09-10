@@ -1,0 +1,57 @@
+{
+  "id": "shop-kyc",
+  "description": "alice 예금 가입 서류 확인 후 실명 확인에서 정지; 원장 불변; replay eval:shop-deposit:v0",
+  "customer_id": "syn_alice",
+  "fail_if": ["journal", "pending"],
+  "steps": [
+    { "do": "session.start" },
+    {
+      "do": "shop.enroll",
+      "args": {
+        "product_id": "prod_deposit_hanbit",
+        "checked_documents": ["id_card"]
+      },
+      "expect": {
+        "ok": false,
+        "decision": "DENY_POLICY",
+        "rule_id": "DOCUMENTS_INCOMPLETE",
+        "copy_contains": "서류를 모두 확인해야 합니다",
+        "no_journal": true
+      }
+    },
+    {
+      "do": "shop.enroll",
+      "args": {
+        "product_id": "prod_deposit_hanbit",
+        "checked_documents": ["id_card", "resident_copy", "purpose_form"]
+      },
+      "expect": {
+        "ok": false,
+        "decision": "DENY_POLICY",
+        "rule_id": "KYC_REQUIRED",
+        "copy_contains": "실명 확인이 필요합니다",
+        "no_journal": true,
+        "blast_radius": "medium"
+      }
+    },
+    {
+      "do": "shop.enroll",
+      "args": {
+        "product_id": "prod_deposit_hanbit",
+        "checked_documents": ["id_card", "resident_copy", "purpose_form"]
+      },
+      "expect": {
+        "ok": false,
+        "decision": "DENY_POLICY",
+        "rule_id": "KYC_REQUIRED",
+        "copy_contains": "실명 확인이 필요합니다",
+        "no_journal": true,
+        "same_audit_id": true
+      }
+    }
+  ],
+  "expect_balances": {
+    "acc_alice_chk": { "available": 10000000, "pending_out": 0 },
+    "acc_alice_mmf": { "available": 100000, "pending_out": 0 }
+  }
+}

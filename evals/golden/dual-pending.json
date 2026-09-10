@@ -1,0 +1,63 @@
+{
+  "id": "dual-pending",
+  "description": "alice 1000000 PENDING 승인 대기; self-approve fails; operator.approve POSTED; decision_ref stable",
+  "customer_id": "syn_alice",
+  "steps": [
+    { "do": "session.start" },
+    { "do": "handoff", "args": { "to": "transfer" } },
+    {
+      "do": "transfer",
+      "args": {
+        "from_account_id": "acc_alice_chk",
+        "to_account_id": "acc_alice_sav",
+        "amount": 1000000,
+        "idempotency_key": "eval:dual-pending:v0"
+      },
+      "expect": {
+        "journal_status": "PENDING",
+        "decision": "DUAL_CONTROL",
+        "rule_id": "DUAL_AMOUNT",
+        "pending_out": 1000000,
+        "copy_contains": "승인 대기",
+        "copy_excludes": "이체 완료",
+        "decision_ref_is_decide": true,
+        "unapplied_entries": true,
+        "pending_out_matches_debits": true,
+        "blast_radius": "high"
+      }
+    },
+    {
+      "do": "agent.approve",
+      "expect": {
+        "ok": false,
+        "rule_id": "SELF_APPROVE_FORBIDDEN",
+        "copy_contains": "본인 건은 승인할 수 없음",
+        "no_operator_approve": true,
+        "same_decision_ref": true
+      }
+    },
+    {
+      "do": "operator.approve",
+      "expect": {
+        "journal_status": "POSTED",
+        "decision": "OPERATOR_APPROVE",
+        "new_audit_id": true,
+        "copy_contains": "완료",
+        "same_decision_ref": true
+      }
+    },
+    {
+      "do": "replay.approve",
+      "expect": {
+        "journal_status": "POSTED",
+        "same_audit_id": true,
+        "same_journal_id": true,
+        "same_decision_ref": true
+      }
+    }
+  ],
+  "expect_balances": {
+    "acc_alice_chk": { "available": 9000000, "pending_out": 0 },
+    "acc_alice_sav": { "available": 1200000, "pending_out": 0 }
+  }
+}

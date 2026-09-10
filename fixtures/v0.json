@@ -1,0 +1,120 @@
+{
+  "version": "v0",
+  "currency": "KRW",
+  "currency_note": "integer won only",
+  "timezone": "Asia/Seoul",
+  "store_timestamps": "UTC",
+  "disclaimer": "Synthetic sandbox customers only. Not a licensed bank. No real money, live rails, or real PII.",
+  "customers": [
+    {
+      "id": "syn_alice",
+      "display_name": "앨리스"
+    },
+    {
+      "id": "syn_bob",
+      "display_name": "밥"
+    }
+  ],
+  "accounts": [
+    {
+      "id": "acc_alice_chk",
+      "customer_id": "syn_alice",
+      "product": "CHECKING",
+      "opening_available": 10000000,
+      "sleeve": "checking",
+      "label": "한빛 입출금통장",
+      "institution": "한빛은행",
+      "product_name": "생활비 예금",
+      "kind_label": "예금",
+      "apy_bps": 10
+    },
+    {
+      "id": "acc_alice_sav",
+      "customer_id": "syn_alice",
+      "product": "SAVINGS",
+      "opening_available": 200000,
+      "label": "한빛 자유적금",
+      "institution": "한빛은행",
+      "product_name": "자유적금",
+      "kind_label": "적금"
+    },
+    {
+      "id": "acc_alice_mmf",
+      "customer_id": "syn_alice",
+      "product": "SAVINGS",
+      "opening_available": 100000,
+      "sleeve": "mmf",
+      "label": "한빛 파킹MMF",
+      "institution": "한빛은행",
+      "product_name": "단기금융 MMF",
+      "kind_label": "MMF",
+      "apy_bps": 350
+    },
+    {
+      "id": "acc_alice_eq",
+      "customer_id": "syn_alice",
+      "product": "CHECKING",
+      "opening_available": 800000,
+      "sleeve": "equity",
+      "label": "청운 코스피200 ETF",
+      "institution": "청운증권",
+      "product_name": "합성 주식형 ETF",
+      "kind_label": "ETF"
+    },
+    {
+      "id": "acc_alice_bond",
+      "customer_id": "syn_alice",
+      "product": "CHECKING",
+      "opening_available": 200000,
+      "sleeve": "bond",
+      "label": "청운 국고채 ETF",
+      "institution": "청운증권",
+      "product_name": "합성 채권형 ETF",
+      "kind_label": "ETF"
+    },
+    {
+      "id": "acc_bob_chk",
+      "customer_id": "syn_bob",
+      "product": "CHECKING",
+      "opening_available": 500000,
+      "label": "한빛 입출금통장",
+      "institution": "한빛은행",
+      "product_name": "입출금 예금",
+      "kind_label": "예금"
+    },
+    {
+      "id": "acc_bob_sav",
+      "customer_id": "syn_bob",
+      "product": "SAVINGS",
+      "opening_available": 100000,
+      "label": "한빛 자유적금",
+      "institution": "한빛은행",
+      "product_name": "자유적금",
+      "kind_label": "적금"
+    },
+    {
+      "id": "acc_house_equity",
+      "customer_id": null,
+      "product": "HOUSE",
+      "opening_available": 0,
+      "role": "opening_balance_contra"
+    }
+  ],
+  "policy": {
+    "daily_outbound_cap_krw": 5000000,
+    "dual_control_amount_krw": 1000000,
+    "dual_control_other_customer": true
+  },
+  "treasury": {
+    "customer_id": "syn_alice",
+    "checking_buffer_krw": 8000000,
+    "target_equity_bps": 7000,
+    "checking_apy_bps": 10,
+    "mmf_apy_bps": 350,
+    "idempotency": {
+      "idle": "eval:treasury-idle:v0",
+      "rebalance": "eval:rebalance:v0"
+    },
+    "note": "Yields are fixture constants, not market data. Product labels (한빛 입출금통장 / 한빛 파킹MMF / 청운 ETF) are synthetic demo names, not licensed-bank product codes. Rebalance is a book-entry between brokerage sleeves."
+  }
+}

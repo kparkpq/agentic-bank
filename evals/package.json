@@ -1,0 +1,18 @@
+{
+  "name": "@sapiensq/evals",
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "eval": "tsx runner.ts",
+    "walk": "tsx walk.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@sapiensq/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.10",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.2"
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "name": "sapiensq-agentic-bank",
+  "private": true,
+  "version": "0.0.1",
+  "description": "SapiensQ Agentic AI Bank sandbox v0 \u2014 simulated KRW control plane. Not a bank.",
+  "packageManager": "pnpm@10.33.3",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @sapiensq/api --filter @sapiensq/web --parallel dev",
+    "build": "pnpm --filter @sapiensq/web build",
+    "check": "pnpm typecheck && pnpm test && pnpm build",
+    "start": "pnpm --filter @sapiensq/web build && pnpm --filter @sapiensq/api start",
+    "seed": "pnpm --filter @sapiensq/core seed",
+    "test": "pnpm --filter @sapiensq/core test",
+    "eval": "pnpm --filter @sapiensq/core test && pnpm --filter @sapiensq/evals eval",
+    "walk": "pnpm --filter @sapiensq/evals walk",
+    "typecheck": "pnpm -r typecheck",
+    "trust:smoke": "pnpm --filter @sapiensq/api trust:smoke"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  }
+}

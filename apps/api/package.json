@@ -1,0 +1,24 @@
+{
+  "name": "@sapiensq/api",
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "node --import tsx src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "trust:smoke": "node --import tsx src/trust-smoke.ts"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.14.1",
+    "@sapiensq/core": "workspace:*",
+    "hono": "^4.7.5",
+    "ethers": "6.16.0",
+    "ganache": "7.9.2",
+    "solc": "0.8.30"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.10",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.2"
+  }
+}

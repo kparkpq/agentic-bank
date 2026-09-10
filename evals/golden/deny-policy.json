@@ -1,0 +1,90 @@
+{
+  "id": "deny-policy",
+  "description": "AGENT_TOOL_DENIED / SAME_ACCOUNT / INVALID_AMOUNT / UNKNOWN_ACCOUNT / NOT_OWNED are DENY_POLICY; audit-only; no journal",
+  "customer_id": "syn_alice",
+  "fail_if": ["pending"],
+  "steps": [
+    { "do": "session.start" },
+    {
+      "do": "transfer",
+      "args": {
+        "from_account_id": "acc_alice_chk",
+        "to_account_id": "acc_alice_sav",
+        "amount": 100000,
+        "idempotency_key": "eval:deny-policy:teller:v0"
+      },
+      "expect": {
+        "decision": "DENY_POLICY",
+        "rule_id": "AGENT_TOOL_DENIED",
+        "ok": false,
+        "no_journal": true,
+        "blast_radius": "medium"
+      }
+    },
+    { "do": "handoff", "args": { "to": "transfer" } },
+    {
+      "do": "transfer",
+      "args": {
+        "from_account_id": "acc_alice_chk",
+        "to_account_id": "acc_alice_sav",
+        "amount": 0,
+        "idempotency_key": "eval:deny-policy:invalid:v0"
+      },
+      "expect": {
+        "decision": "DENY_POLICY",
+        "rule_id": "INVALID_AMOUNT",
+        "no_journal": true,
+        "blast_radius": "medium"
+      }
+    },
+    {
+      "do": "transfer",
+      "args": {
+        "from_account_id": "acc_alice_chk",
+        "to_account_id": "acc_alice_chk",
+        "amount": 1,
+        "idempotency_key": "eval:deny-policy:same:v0"
+      },
+      "expect": {
+        "decision": "DENY_POLICY",
+        "rule_id": "SAME_ACCOUNT",
+        "no_journal": true,
+        "blast_radius": "medium"
+      }
+    },
+    {
+      "do": "transfer",
+      "args": {
+        "from_account_id": "acc_nobody",
+        "to_account_id": "acc_alice_sav",
+        "amount": 1,
+        "idempotency_key": "eval:deny-policy:unknown:v0"
+      },
+      "expect": {
+        "decision": "DENY_POLICY",
+        "rule_id": "UNKNOWN_ACCOUNT",
+        "no_journal": true,
+        "blast_radius": "medium"
+      }
+    },
+    {
+      "do": "transfer",
+      "args": {
+        "from_account_id": "acc_bob_chk",
+        "to_account_id": "acc_alice_sav",
+        "amount": 1,
+        "idempotency_key": "eval:deny-policy:not-owned:v0"
+      },
+      "expect": {
+        "decision": "DENY_POLICY",
+        "rule_id": "NOT_OWNED",
+        "no_journal": true,
+        "blast_radius": "medium"
+      }
+    }
+  ],
+  "expect_balances": {
+    "acc_alice_chk": { "available": 10000000, "pending_out": 0 },
+    "acc_alice_sav": { "available": 200000, "pending_out": 0 }
+  }
+}

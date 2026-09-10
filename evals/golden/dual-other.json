@@ -1,0 +1,35 @@
+{
+  "id": "dual-other",
+  "description": "alice_chk→bob_chk 50000 DUAL_OTHER_CUSTOMER PENDING; not ALLOW; eval:dual-other:v0",
+  "customer_id": "syn_alice",
+  "steps": [
+    { "do": "session.start" },
+    { "do": "handoff", "args": { "to": "transfer" } },
+    {
+      "do": "transfer",
+      "args": {
+        "from_account_id": "acc_alice_chk",
+        "to_account_id": "acc_bob_chk",
+        "amount": 50000,
+        "idempotency_key": "eval:dual-other:v0"
+      },
+      "expect": {
+        "journal_status": "PENDING",
+        "decision": "DUAL_CONTROL",
+        "rule_id": "DUAL_OTHER_CUSTOMER",
+        "not_decision": "ALLOW",
+        "copy_contains": "승인 대기",
+        "copy_excludes": "이체 완료",
+        "pending_out": 50000,
+        "decision_ref_is_decide": true,
+        "unapplied_entries": true,
+        "pending_out_matches_debits": true,
+        "blast_radius": "high"
+      }
+    }
+  ],
+  "expect_balances": {
+    "acc_alice_chk": { "available": 10000000, "pending_out": 50000 },
+    "acc_bob_chk": { "available": 500000, "pending_out": 0 }
+  }
+}

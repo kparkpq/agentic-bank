@@ -1,0 +1,1299 @@
+--- a/Dockerfile
++++ b/Dockerfile
+@@ -14,6 +14,7 @@
+ COPY . .
+ RUN pnpm --filter @sapiensq/web build
+ 
++ENV HOST=0.0.0.0
+ ENV PORT=3000
+ ENV DATABASE_PATH=/data/bank.sqlite
+ EXPOSE 3000
+--- a/README.md
++++ b/README.md
+@@ -1,3 +1,5 @@
++> **Trust Layer 시제품 추가**: 실행과 현재 지원 범위는 [START_HERE_KO.md](START_HERE_KO.md)를 먼저 보세요. 아래 원래 문서의 무서명 송금·운영자 승인 API는 이제 428을 반환합니다. 서명된 단일 이체는 `/trust-demo`에서 수행합니다.
++
+ # SapiensQ Agentic AI Bank sandbox v0
+ 
+ Simulated KRW **neutral money layer** plus the v0 control plane. Not a bank. Not a brokerage. A buyer watches Alice's idle cash move into a higher-yield sleeve and a tiny 70/30 book rebalance — then the same ledger+policy posts or waits for dual-control.
+--- /dev/null
++++ b/START_HERE_KO.md
+@@ -0,0 +1,87 @@
++# Agentic Bank + Trust Layer 시제품 — 시작하기
++
++이번 ZIP은 업로드한 Agentic Bank를 바탕으로 수정한 **로컬 실행 시제품**입니다. 예전에 제공한 별도 Python 데모가 아닙니다.
++
++## 실행
++
++준비물: Node.js 24와 pnpm. 최초 설치에는 인터넷이 필요합니다. API 키, 코인, 외부 지갑은 필요 없습니다.
++
++압축을 풀고 **이 파일이 있는 Agentic_Bank 폴더**를 Cursor에서 연 다음 터미널에 입력하세요.
++
++```bash
++pnpm install --frozen-lockfile
++pnpm start
++```
++
++터미널에 API 시작 메시지가 나오면 브라우저에서 아래 주소를 여세요.
++
++**http://localhost:3001/trust-demo**
++
++종료는 터미널에서 Ctrl+C입니다. 다시 시작하면 원장과 개발용 체인 기록이 남아 있습니다.
++
++pnpm이 없으면 Node.js 설치를 확인한 뒤 `corepack pnpm install --frozen-lockfile` 및 `corepack pnpm start`를 사용할 수 있습니다. corepack도 없으면 개발자에게 pnpm 설치를 요청하세요. Mac의 START_MAC.command 또는 Windows의 START_WINDOWS.cmd도 pnpm이 설치된 경우 사용할 수 있습니다.
++
++## 처음 보여줄 3가지 장면
++
++### 1. 정상 거래와 블록체인 검증
++1. ‘합성 신원’에서 **앨리스**를 선택하고 ‘데모 세션 시작’을 누릅니다.
++2. 수취 계좌 **앨리스 적금**, 1회 위임 한도 **1,000,000원**을 확인합니다.
++3. ‘이 범위에 서명하고 위임’을 누릅니다.
++4. 요청 금액 **300,000원**으로 ‘에이전트 거래 요청 검증’을 누릅니다.
++5. 계좌와 금액을 읽고 ‘위 거래에 서명하고 실행’을 누릅니다.
++6. 상태 **POSTED**와 기록의 블록 번호를 확인합니다.
++7. ‘기록 검증’을 누르면 **로컬 원장과 체인 증적 일치**가 나옵니다.
++8. ‘증적 JSON 저장’으로 증적을 내려받을 수 있습니다.
++
++### 2. 권한 초과 차단
++같은 위임장으로 요청 금액을 **2,000,000원**으로 바꿔 검증합니다. 위임 한도 단계가 차단되고 **DENIED / DELEGATED_LIMIT_EXCEEDED**가 나옵니다. 이체는 실행되지 않고 거부 증적은 체인에 기록됩니다.
++
++### 3. 운영자 추가 승인
++1. 수취 계좌를 **밥 입출금**으로 바꾸고 새 위임장에 서명합니다.
++2. **300,000원** 요청을 검증한 뒤 거래에 서명합니다.
++3. 기존 은행 정책 때문에 **PENDING**이 됩니다. 아직 최종 출금이 아닙니다.
++4. 화면 안 ‘합성 신원’을 **운영자**로 바꾸고 ‘데모 세션 시작’을 누릅니다.
++5. 해당 거래의 ‘서명하고 추가 승인’을 누릅니다.
++6. **POSTED** 전환과 추가 증적을 확인하고 ‘기록 검증’을 누릅니다.
++
++앱 우측 상단 기존 ‘역할’ 선택과 신뢰 검증 화면의 ‘합성 신원’ 세션은 별개입니다. 신뢰 검증 작업은 화면 안의 합성 신원으로 수행합니다.
++
++## 무엇이 실제로 구현되었나
++
++| 구분 | 상태 |
++|---|---|
++| 기존 웹 앱·원장·정책·이중통제 연결 | 구현 |
++| 사람→에이전트 위임장 Ed25519 서명 | 구현 |
++| 에이전트의 거래 요청 서명 검증 | 구현 |
++| 금액·수취인·만료시간에 결합된 사람 승인 서명 | 구현 |
++| 에이전트·위임 철회 및 실행 직전 재검사 | 구현 |
++| 기존 API로 승인 절차 우회 방지 | 구현. 기존 무서명 송금·승인 API는 428 반환 |
++| Solidity 계약 컴파일·배포·증적 채굴 | 구현. 로컬 Ganache EVM 개발용 체인 |
++| 증적 원문·해시·체인 영수증·현재 전표 대조 | 구현 |
++| 체인 재시작·채굴된 영수증 복구 | 테스트 통과 |
++| 사람의 은행 실명인증 / 기관 SSO | 데모 대용. 실명인증이 아님 |
++| 외부 생성형 AI 모델 | 미연결. 기존 규칙 기반 에이전트 유지 |
++| 실제 계좌·실제 송금 | 미연결. 기존 합성 원장만 변경 |
++| 다기관 블록체인·메인넷·공개 웹 배포 | 미실시 |
++| 여러 자산을 한 번에 옮기는 리밸런싱 서명 | 후속 범위. 이번에는 단일 이체 |
++
++## 사용 시 알아둘 점
++
++- 웹 페이지를 새로고침하면 사람의 개인 서명키가 사라집니다. 새 데모 세션을 시작하고 새 위임장을 만드세요. 기존 증적과 원장은 유지됩니다.
++- 세션 1시간, 위임장 최대 30분, 거래 요청 최대 5분입니다. 만료 후에는 새 요청이 필요합니다.
++- 위임 총 예산과 은행 일일 출금 한도는 각각 500만원입니다. 같은 고객 100만원 이상 또는 다른 고객에게 보내면 기존 운영자 추가 승인이 적용됩니다.
++- 원문 PRD의 ‘3억원 급여이체’ 성공 장면은 기존 은행 일일 500만원 정책과 충돌하므로 이번 시제품의 성공 장면으로 사용하지 않았습니다. 실제 급여 배치도 미구현입니다.
++- 에이전트 철회는 해당 개발용 에이전트를 계속 차단합니다. 데모 후 원복은 새 데이터 경로로 시작해야 합니다. 데이터 폴더 일부만 삭제하면 체인과 은행 기록이 어긋날 수 있습니다.
++- 체인 등록 대기 상태는 은행 이체 실패를 뜻하지 않습니다. 운영자 세션의 ‘미등록 기록 재시도’ 후 검증하세요.
++- Ganache가 Node.js 24에서 µWS 관련 메시지를 출력하면 JavaScript 대체 구현을 사용합니다. 제공 환경에서는 이 대체 구현으로 테스트를 통과했습니다.
++- 브라우저에서 Ed25519 지원 오류가 발생하면 최신 브라우저와 localhost 주소를 사용하세요. 서명 검증을 끄는 대체 동작은 넣지 않았습니다.
++
++## 검증 범위
++
++- 기존 테스트 47개 + Trust 테스트 17개 = **64개 통과**.
++- HTTP 요청, WebCrypto 서명, 기존 원장, Solidity 배포, 로컬 EVM 채굴·대조, 우회 차단, 변조·삭제 탐지, 재시작 등 **통합 확인 25개 통과**.
++- TypeScript 검사 및 웹 프로덕션 빌드 통과.
++- 브라우저 직접 조작·화면 캡처·영상 녹화는 실시하지 않았습니다. 브라우저 서명과 같은 WebCrypto API를 사용한 통합 테스트를 실시했습니다.
++- Docker 설정은 포함하지만 이 환경에서 컨테이너 실행 검증은 하지 않았습니다.
++
++개발자는 `docs/TRUST_IMPLEMENTATION.md`와 `docs/TRUST_VALIDATION.md`를 확인하세요.
+--- /dev/null
++++ b/START_MAC.command
+@@ -0,0 +1,10 @@
++#!/bin/bash
++set -e
++cd "$(dirname "$0")"
++if ! command -v node >/dev/null || ! command -v pnpm >/dev/null; then
++  echo 'Node.js 24와 pnpm 설치가 필요합니다. START_HERE_KO.md를 확인하세요.'
++  read -r -p 'Enter를 눌러 종료합니다.'
++  exit 1
++fi
++pnpm install --frozen-lockfile
++pnpm start
+--- /dev/null
++++ b/START_WINDOWS.cmd
+@@ -0,0 +1,9 @@
++@echo off
++cd /d "%~dp0"
++call pnpm install --frozen-lockfile
++if errorlevel 1 goto failed
++call pnpm start
++exit /b
++:failed
++ echo Please install Node.js 24 and pnpm. See START_HERE_KO.md.
++ pause
+--- a/apps/api/package.json
++++ b/apps/api/package.json
+@@ -4,13 +4,17 @@
+   "type": "module",
+   "scripts": {
+     "dev": "tsx watch src/index.ts",
+-    "start": "tsx src/index.ts",
+-    "typecheck": "tsc --noEmit"
++    "start": "node --import tsx src/index.ts",
++    "typecheck": "tsc --noEmit",
++    "trust:smoke": "node --import tsx src/trust-smoke.ts"
+   },
+   "dependencies": {
+     "@hono/node-server": "^1.14.1",
+     "@sapiensq/core": "workspace:*",
+-    "hono": "^4.7.5"
++    "hono": "^4.7.5",
++    "ethers": "6.16.0",
++    "ganache": "7.9.2",
++    "solc": "0.8.30"
+   },
+   "devDependencies": {
+     "@types/node": "^22.13.10",
+--- a/apps/api/src/index.ts
++++ b/apps/api/src/index.ts
+@@ -1,3 +1,5 @@
++import { createTrustRoutes } from "./trust-routes.js";
++import { moneyGate } from "./money-gate.js";
+ import { existsSync } from "node:fs";
+ import { dirname, join } from "node:path";
+ import { fileURLToPath } from "node:url";
+@@ -50,6 +52,10 @@
+   await next();
+ });
+ 
++app.use("/api/*", moneyGate(bank));
++const trustRuntime = await createTrustRoutes(bank, join(dirname(bank.dbPath), "trust"));
++app.route("/api/trust", trustRuntime.app);
++
+ function forbidCustomer(pathHint: string) {
+   return { error: `customer role cannot access ${pathHint}` };
+ }
+@@ -503,4 +509,7 @@
+ 
+ const port = Number(process.env.PORT ?? 3001);
+ console.log(`SapiensQ sandbox API http://localhost:${port} (simulated KRW, not a bank)`);
+-serve({ fetch: app.fetch, port });
++const server = serve({ fetch: app.fetch, port, hostname: process.env.HOST ?? "127.0.0.1" });
++for (const signal of ["SIGINT", "SIGTERM"] as const) process.once(signal, () => {
++  server.close(() => { void trustRuntime.chain.close().finally(() => { bank.close(); process.exit(0); }); });
++});
+--- /dev/null
++++ b/apps/api/src/money-gate.ts
+@@ -0,0 +1,19 @@
++import type { MiddlewareHandler } from 'hono';
++import type { Bank } from '@sapiensq/core';
++/** Existing unprotected HTTP settlement endpoints are closed, not a second execution path. */
++export function moneyGate(bank:Bank):MiddlewareHandler {
++  return async(c,next)=>{
++    if(c.req.method==='POST') {
++      const path=c.req.path;
++      let blocked=/^\/api\/proposals\/[^/]+\/execute$/.test(path)||path==='/api/operator/approve'||path==='/api/operator/deny';
++      if(path==='/api/tools') {
++        const body=await c.req.json().catch(()=>({}));
++        blocked=body.action==='transfer';
++        const auth=c.get('auth');
++        if(auth?.role==='customer'&&!bank.sessions().some(s=>s.id===body.session_id&&s.customer_id===auth.customer_id))return c.json({error:'SESSION_OWNER_MISMATCH'},403);
++      }
++      if(blocked)return c.json({error:'TRUST_SIGNATURE_REQUIRED: 신뢰 검증 화면에서 서명 후 실행하세요.',route:'/trust-demo'},428);
++    }
++    await next();
++  };
++}
+--- a/apps/api/src/trust-smoke.ts
++++ b/apps/api/src/trust-smoke.ts
+@@ -4,6 +4,8 @@
+ import { tmpdir } from 'node:os';
+ import { join } from 'node:path';
+ import { Contract } from 'ethers';
++import { Hono } from 'hono';
++import { moneyGate } from './money-gate.js';
+ import { Bank, canonical, hash } from '@sapiensq/core';
+ import { LocalChain } from './chain.js';
+ import { createTrustRoutes } from './trust-routes.js';
+@@ -16,8 +18,21 @@
+ try {
+   runtime=await createTrustRoutes(bank,dir,{memoryKey:generateKeyPairSync('ed25519').privateKey});
+   const {app,trust}=runtime;
++  const guarded=new Hono();
++  guarded.use('/api/*',moneyGate(bank));
++  guarded.all('*',c=>c.json({executed:true}));
++  for(const [path,body] of [
++    ['/api/tools',{action:'transfer'}],
++    ['/api/proposals/treasury-idle/execute',{}],
++    ['/api/operator/approve',{}],
++    ['/api/operator/deny',{}],
++  ] as const){
++    const denied=await guarded.request('http://localhost'+path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
++    ok(denied.status===428,'unsigned legacy money endpoint blocked: '+path);
++  }
++
+   let chain=runtime.chain;
+-  const pair=await webcrypto.subtle.generateKey('Ed25519',false,['sign','verify']);
++  const pair=await webcrypto.subtle.generateKey('Ed25519',false,['sign','verify']) as webcrypto.CryptoKeyPair;
+   const public_key=Buffer.from(await webcrypto.subtle.exportKey('spki',pair.publicKey)).toString('base64');
+   const sign=async(message:string)=>Buffer.from(await webcrypto.subtle.sign('Ed25519',pair.privateKey,new TextEncoder().encode(message))).toString('base64');
+   let token='';
+--- a/apps/web/src/App.tsx
++++ b/apps/web/src/App.tsx
+@@ -1,3 +1,4 @@
++import { TrustPage } from "./pages/Trust";
+ import { NavLink, Navigate, Route, Routes, useLocation } from "react-router-dom";
+ import type { ReactNode } from "react";
+ import { useAuth } from "./auth";
+@@ -14,6 +15,7 @@
+ import { TracesPage } from "./pages/Traces";
+ 
+ const CUSTOMER_NAV = [
++  { to: "/trust-demo", ko: "신뢰 검증" },
+   { to: "/money", ko: "내 돈" },
+   { to: "/proposals", ko: "제안" },
+   { to: "/products", ko: "상품" },
+@@ -36,6 +38,7 @@
+ }
+ 
+ function titleFor(path: string): { h2: string; p: string } {
++  if (path.startsWith("/trust-demo")) return {h2:"신뢰 검증",p:"승인 · 위임 · 실행 증적"};
+   if (path.startsWith("/money")) {
+     return { h2: "내 돈", p: "한 사람의 중립 자금 레이어입니다. 은행 앱이 아닙니다." };
+   }
+@@ -121,6 +124,7 @@
+         </div>
+         <Routes>
+           <Route path="/" element={<Navigate to="/money" replace />} />
++          <Route path="/trust-demo" element={<TrustPage />} />
+           <Route path="/money" element={<MoneyPage />} />
+           <Route path="/proposals" element={<ProposalsPage />} />
+           <Route path="/products" element={<ProductsPage />} />
+--- a/apps/web/src/pages/Pending.tsx
++++ b/apps/web/src/pages/Pending.tsx
+@@ -1,3 +1,4 @@
++import { Link } from "react-router-dom";
+ import { useEffect, useState } from "react";
+ import { api, formatWon, useAuth } from "../auth";
+ 
+@@ -59,6 +60,7 @@
+ 
+   return (
+     <div>
++      <p className="flash">추가 승인은 <Link to="/trust-demo">신뢰 검증 화면</Link>에서 운영자 데모 세션으로 서명해 진행합니다.</p>
+       {rows.length === 0 ? <div className="empty">대기 중인 이체 없음</div> : null}
+       {rows.length > 0 ? (
+         <div className="table-wrap">
+@@ -94,10 +96,10 @@
+                       <span className="pill DENIED">본인 건은 승인할 수 없음</span>
+                     ) : (
+                       <>
+-                        <button type="button" onClick={() => setConfirm({ kind: "approve", row: j })}>
++                        <button type="button" onClick={() => { window.location.href = "/trust-demo"; }}>
+                           승인
+                         </button>
+-                        <button type="button" className="danger" onClick={() => setConfirm({ kind: "deny", row: j })}>
++                        <button type="button" className="danger" onClick={() => { window.location.href = "/trust-demo"; }}>
+                           거절
+                         </button>
+                       </>
+--- a/apps/web/src/pages/Proposals.tsx
++++ b/apps/web/src/pages/Proposals.tsx
+@@ -84,6 +84,7 @@
+ 
+   return (
+     <div className="customer" data-testid="page-proposals">
++      <p className="flash">거래 실행은 <Link to="/trust-demo">신뢰 검증 화면</Link>에서 서명 후 진행합니다. 현재 시제품은 입출금 계좌에서 한 계좌로 보내는 단일 이체를 지원합니다. 다중 자산 리밸런싱 서명은 후속 범위입니다.</p>
+       <p className="lede">
+         규칙은 유휴 현금 버퍼와 70/30 목표입니다. 실행하면 기존 원장·정책이 전표를 남깁니다. 생성형 모델이 아닙니다.
+       </p>
+@@ -123,9 +124,9 @@
+                   type="button"
+                   data-testid={`execute-${p.id}`}
+                   disabled={busy !== null}
+-                  onClick={() => execute(p.id)}
++                  onClick={() => { window.location.href = "/trust-demo"; }}
+                 >
+-                  실행
++                  신뢰 검증으로 이동
+                 </button>
+                 <button
+                   type="button"
+--- a/apps/web/src/pages/Trust.tsx
++++ b/apps/web/src/pages/Trust.tsx
+@@ -1,3 +1,4 @@
++import './trust.css';
+ import { useEffect, useRef, useState } from 'react';
+ import { Link } from 'react-router-dom';
+ import { formatWon } from '../auth';
+--- /dev/null
++++ b/apps/web/src/pages/trust.css
+@@ -0,0 +1 @@
++.trust-page{max-width:1200px;font-size:16px;line-height:1.55;color:#17283d}.trust-intro{display:flex;justify-content:space-between;gap:24px;align-items:flex-start;margin:8px 0 24px}.trust-intro h2{font-size:28px;letter-spacing:-.7px;margin:8px 0}.trust-eyebrow{font-size:12px;font-weight:700;letter-spacing:1.6px;color:#426283}.trust-badge{border:1px solid #476b97;border-radius:4px;padding:7px 12px;color:#294d77;white-space:nowrap;font-size:14px}.trust-login{display:flex;align-items:flex-end;gap:14px;flex-wrap:wrap;background:#edf3fa;border:1px solid #c7d5e4;padding:18px}.trust-page label{display:flex;flex-direction:column;gap:6px;font-size:14px;font-weight:600;margin-bottom:12px}.trust-login label{margin:0}.trust-page input,.trust-page select{font:inherit;min-height:42px;max-width:100%;padding:8px;border:1px solid #a2b3c6;border-radius:4px;background:white;color:#17283d}.trust-page button{min-height:40px;padding:9px 14px;font-size:14px;cursor:pointer}.trust-page button:disabled{cursor:not-allowed;opacity:.55}.trust-note{font-size:14px;color:#4d5e73}.trust-stages{list-style:none;padding:0;margin:24px 0;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}.trust-stages li{display:flex;gap:10px;align-items:center;padding:14px 10px;border:1px solid #ced7e0;background:white;min-width:0}.trust-stages strong{font-size:14px}.trust-stages small{display:block;font-size:12px;color:#526075}.trust-stages b{font-size:12px;margin-left:auto;white-space:nowrap}.trust-step{font-size:14px;font-weight:bold;color:#526075}.trust-stages .stage-PASS{border-left:4px solid #1e6c57}.trust-stages .stage-FAIL{border-left:4px solid #ba3939}.trust-stages .stage-PENDING{border-left:4px solid #a16a16}.trust-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}.trust-card{padding:22px;border:1px solid #c7d3e0;background:white;margin-bottom:18px;border-radius:6px}.trust-card h3{margin:0 0 16px;font-size:19px}.trust-review{margin-top:20px;border-top:1px solid #ced7e0;padding-top:16px}.trust-review h4{font-size:26px;margin:0 0 10px}.trust-review p{overflow-wrap:anywhere}.trust-success{background:#e2f3eb;color:#155039;padding:12px;border-left:4px solid #1e6c57}.trust-error{background:#fff0ed;color:#8a2424;padding:12px;border-left:4px solid #ba3939;overflow-wrap:anywhere}.trust-heading{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap}.trust-table{overflow-x:auto}.trust-table table{width:100%;border-collapse:collapse;font-size:14px}.trust-table td,.trust-table th{text-align:left;border-bottom:1px solid #dce3eb;padding:12px 8px}.trust-wrap{overflow-wrap:anywhere}.trust-page details summary{cursor:pointer;font-size:15px;font-weight:600}.trust-page a{color:#214f85}@media(max-width:900px){.trust-stages{grid-template-columns:repeat(2,minmax(0,1fr))}.trust-grid{grid-template-columns:1fr}.trust-intro{flex-direction:column}.trust-intro h2{font-size:24px}}@media(max-width:480px){.trust-stages{grid-template-columns:1fr}.trust-card{padding:16px}.trust-login{padding:14px}.trust-login>*{max-width:100%}}
+--- a/docker-compose.yml
++++ b/docker-compose.yml
+@@ -2,7 +2,7 @@
+   sandbox:
+     build: .
+     ports:
+-      - "3000:3000"
++      - "127.0.0.1:3000:3000"
+     environment:
+       PORT: "3000"
+       DATABASE_PATH: /data/bank.sqlite
+--- /dev/null
++++ b/docs/TRUST_IMPLEMENTATION.md
+@@ -0,0 +1,97 @@
++# Trust Layer implementation and handoff
++
++## Scope and source
++Built on the supplied TypeScript monorepo and its `trust-layer-4w-prd.md`. Core requirements implemented for **one registered transfer agent, one source account per customer, one destination per signed grant, single-transfer requests**. Core bank fixture, daily cap, double-entry balances, policy decisions and dual-control are retained.
++
++Signed JSON/Ed25519 was selected from the PRD's permitted grant options. There is no DID resolver, W3C VC implementation, remote agent enrollment UI, HSM, actual KYC provider, autonomous LLM, payroll batch or multi-asset signed rebalance in this version. The two legacy treasury proposals remain visible but their old unsigned execution paths are blocked. New signed single transfers use the existing bank transfer tool. The PRD's 300m KRW happy path is incompatible with the bank's 5m KRW daily cap; the demo uses 300k KRW and documents the difference.
++
++## Files
++
++| File | Responsibility |
++|---|---|
++| packages/core/src/trust.ts | Ed25519 verification, synthetic sessions, signed grants, expiry, revocation, cumulative grant budget, explicit approvals, existing bank bridge, evidence chain |
++| packages/core/src/db.ts | Nestable synchronous transactions via savepoints; bank execution and Trust evidence commit/rollback together |
++| apps/api/src/trust-routes.ts | Hono Trust API, bearer session checks, customer scoping, local agent key, domain persistence |
++| apps/api/src/money-gate.ts | Deny unsigned legacy transfer and settlement HTTP paths |
++| apps/api/src/chain.ts | Compile, deploy, anchor, recover receipts and verify actual EVM state |
++| apps/api/contracts/TrustAnchor.sol | One writer, sequential append, previous hash check, nonzero commitment, immutable historic mapping entries |
++| apps/web/src/pages/Trust.tsx | Human key creation/signing, delegation, approval, operator approval, revocation and evidence display |
++| packages/core/src/trust.test.ts | Core regression and adversarial cases |
++| apps/api/src/trust-smoke.ts | HTTP + WebCrypto + EVM integration check, no external network required after install |
++
++## Trust boundary
++
++Identity bootstrap is deliberately a **synthetic SSO stub**. `/api/trust/session` lets the demo operator choose `syn_alice`, `syn_bob`, or `syn_operator` and bind a submitted Ed25519 public key to a one-hour bearer session. This is not real authentication of a named person. Subsequent grants and transaction approvals require the private key corresponding to the bound public key. The UI holds non-extractable private keys only in page memory. A reload loses those keys; create a new session and grant.
++
++The local server runs on `127.0.0.1` by default. Do not expose it as a public service without replacing synthetic SSO, original role headers, session lifecycle, CSRF/origin controls, rate limits and operational key management. Existing read/product/KYC demo endpoints retain their original role-header sandbox semantics. Bank KYC originally gates product enrollment, not transfers; this change does not claim a new production KYC gate on transfers.
++
++A persisted backend Ed25519 key signs the seeded agent's requests. Registry public key mismatch fails startup rather than silently rekeying. The registry supports seeded-agent listing/revocation; dynamic cryptographic onboarding of other agents is follow-up work. Revocation endpoints require a validated bearer session and ownership/operator checks; they do not provide a separate step-up signature.
++
++## Signed messages
++
++- Canonicalization: recursively lexicographic key sort, JSON serialization, UTF-8; omit undefined object fields, null for undefined array values. This is a documented application serialization, not a claim of RFC 8785 compliance for arbitrary input.
++- Grant signed by human: installation domain, random grant ID/nonce, human ID/public key, agent ID, action, source/destination, currency, per-transfer max, total budget, expiry.
++- Request signed by agent, then approved with human signature over the same exact message: installation domain, request ID/nonce, human ID/public key, grant ID, agent ID, action, source/destination, amount, currency, expiry.
++- Refusal signs a separate domain-bound object containing request ID, request-message SHA-256 and DENY decision.
++- Operator settlement uses a separate one-use challenge bound to the operator key, request hash, action and expiry. Ordinary customer sessions cannot approve pending journals. The entire SSO environment remains a mock, so this demonstrates protocol separation rather than real organizational separation of duties.
++
++## Execution and idempotency
++
++`Trust.execute` validates signatures, live registry/grant status, amount, cumulative grant consumption and expiry. It opens a bank transaction, creates a fresh bank session, performs existing `handoff` to transfer, then calls the existing `transfer` tool. Fresh sessions avoid reusing an old remembered policy. Original daily cap, ownership, frozen-account checks, insufficient-funds logic, other-customer/large-amount dual-control still run.
++
++The request ID becomes the bank idempotency key `trust:<request_id>`. Repeated approval of the same completed/pending request does not debit twice. Different request IDs represent separate business instructions. Evidence and bank entries commit atomically using the same SQLite transaction. Pending approval is rechecked for agent/grant expiry/revocation and frozen accounts; rejection remains available even after expiry/revocation. A completed transfer is not reversed by grant revocation.
++
++`/api/tools` transfer, legacy `/api/proposals/:id/execute`, and `/api/operator/approve|deny` return 428; the Trust endpoints are the only HTTP settlement route. Core package functions remain callable by internal code and tests. This is an HTTP service boundary, not a guarantee against an administrator executing arbitrary database/code operations.
++
++## Evidence and actual chain
++
++For each grant issue, authorization result, handled valid/invalid approval, execution, operator decision/block, and revocation, a local receipt contains a salted canonical payload and `SHA256(previous_hex + "\n" + payload)`. Malformed requests and missing sessions return API errors and are not all included in the evidence journal; comprehensive rejected-request logging is follow-up work.
++
++The contract stores sequence→hash plus head/count and emits sequence, previous hash and commitment. It accepts only its deployment writer. Only hashes and sequence information go on-chain; raw synthetic transaction records stay off-chain.
++
++Ganache provides an in-process, **persistent, single-node development EVM**, chain ID 1337. There is no public RPC listener and no mainnet transaction or purchased cryptocurrency. Solidity is genuinely compiled and executed, with mined blocks and receipts. This is not a multi-institution consensus deployment. Deterministic Ganache development accounts are intentionally not production signing keys.
++
++`chain.flush` serializes writes, reconciles existing on-chain sequence/hash and recovers missing receipts after a process failure. Bank completion and anchoring are separate states. Evidence without a confirmed receipt is pending; an anchor error never relabels an executed bank transfer as reversed. Retry is explicit through operator `/anchor`, later state-changing requests, or restart; there is no continuously running background outbox worker yet.
++
++Verification recomputes the evidence hash chain, compares the most recent evidence snapshot per affected journal and its entries with the bank database, checks on-chain sequence hashes/head/count, successful receipt, emitted event, contract, chain ID, block number/hash and canonical block. It detects log mutation, recomputed local hash tampering, forged receipt references and deleted tails while the external comparison chain remains intact. It does not audit all unrelated account/journal/history records.
++
++**An administrator controlling both the bank files and the local development chain can replace the entire environment.** Independent deployment, separately governed validators/checkpoints and key custody are required before claiming external immutability. A single local confirmation is the demo rule, not a production finality policy.
++
++## API
++All below use `/api/trust`; except `/session`, require `Authorization: Bearer <token>`.
++
++| Method | Path | Input / purpose |
++|---|---|---|
++| POST | /session | human_id, base64 SPKI public_key; synthetic identity bootstrap |
++| POST | /logout | Revoke current bearer session |
++| GET | /state | Scoped grants, requests, receipts, agent status, accounts and chain metadata |
++| POST | /grants/challenge | max_amount, to_account_id; prepare exact human signing message |
++| POST | /grants | grant_id, signature; verify and issue |
++| POST | /requests | grant_id, integer amount; agent signs; verify delegation |
++| POST | /requests/:id/approve | approve boolean, signature; execute or refuse |
++| POST | /requests/:id/operator-challenge | approve boolean; independent operator signing message |
++| POST | /operator-decision | challenge_id, signature |
++| POST | /revoke | kind=agent/grant, id; grant owner/operator or agent operator |
++| POST | /anchor | Operator retries pending anchors |
++| GET | /evidence | Scoped receipts |
++| GET | /evidence/:id | Receipt visible to current principal |
++| GET | /verify | Recompute bank/evidence/chain consistency; returns chain_verified and reason |
++
++## Storage and restart
++`DATABASE_PATH` defaults to `data/bank.sqlite`. Adjacent `trust/` contains the agent key (0600), installation domain and `chain/` with Ganache DB and deployment metadata. Keep the whole bank+trust folder together. Do not reset only one component. To start a completely new demo, stop the server and choose a new `DATABASE_PATH`; do not overwrite old evidence.
++
++Browser key loss does not erase receipts. For pending transactions the operator can still settle using the original request's stored public key and signatures, within request/grant validity.
++
++## Next engineering steps
++1. Institution IdP/real session and step-up proof; stable user key enrollment and recovery.
++2. Separately governed permissioned EVM/RPC and production writer custody; finality/reorg policy and background outbox reconciliation.
++3. Signed multi-leg proposals and payroll batches with per-leg/aggregate authority and replay protection.
++4. Optional external LLM adapter producing strictly validated proposals only; keep settlement tools behind the same signed gate.
++5. Real bank sandbox adapter with UNKNOWN status, timeout/retry and reconciliation; local SQLite atomicity does not span bank APIs.
++6. UI browser QA, accessibility review, deployment review and independent security assessment.
++
++## Official references
++- [Node.js crypto](https://nodejs.org/api/crypto.html)
++- [Ethers contract API](https://docs.ethers.org/v6/api/contract/)
++- [Ethers provider API](https://docs.ethers.org/v6/api/providers/)
++- [Solidity contracts](https://docs.soliditylang.org/en/latest/contracts.html)
+--- /dev/null
++++ b/docs/TRUST_VALIDATION.md
+@@ -0,0 +1,36 @@
++# Validation record — Trust prototype
++
++Validated in the provided Linux environment, Node.js v24.19.0. These are executed checks, not projected acceptance criteria.
++
++| Check | Result |
++|---|---|
++| Existing core unit tests | 47 passed |
++| Added Trust unit tests | 17 passed |
++| Core aggregate | 7 files, 64 tests passed |
++| API/WebCrypto/Solidity/local EVM smoke | 25 assertions passed |
++| TypeScript core, API and web | Passed |
++| Web production build | Passed; Vite 6.4.3, 56 modules transformed |
++| Manifest vs lockfile dependency specifiers | Matched |
++| Browser click/visual QA | Not run |
++| Docker startup | Not run |
++| Real bank / external LLM / public or consortium chain | Not connected or tested |
++
++## Reproduce
++
++```bash
++pnpm install --frozen-lockfile
++pnpm test
++pnpm trust:smoke
++pnpm typecheck
++pnpm --filter @sapiensq/web build
++```
++
++The smoke script creates temporary bank/chain state, compiles/deploys the included Solidity contract, generates a non-extractable WebCrypto human key, obtains a mock identity session, signs a grant and transaction, executes the original bank transfer, mines evidence, verifies it and cleans up. It uses Hono's in-process HTTP request harness and does not require a listening port. It closes and reopens the persistent development EVM to verify recovery.
++
++## Unit failure cases
++Wrong human/key; changed grant or amount; grant issue replay; invalid approval; expiry; revoked agent/grant; delegated per-transaction and cumulative limits; bank daily cap; NSF; frozen account; independent operator-only settlement; operator challenge replay; signed refusal; duplicate debit prevention; rollback when evidence insert fails; mutated bank journal; modified evidence; invalidated session.
++
++## Integration assertions
++Four old unsigned money endpoint bypass checks; unauthenticated read rejection; session/public-key binding; signed grant anchoring; no premature execution; existing journal success; successful EVM execution receipt; chain verification; no duplicate debit on replay; limit denial and its anchored evidence; unauthorized contract writer; wrong sequence; wrong previous hash; zero commitment; receipt recovery without a new anchor; recovered receipt verification; forged receipt detection; recomputed local hash accepted locally but rejected against the chain; deleted tail detection; chain persistence across restart.
++
++The development deployment address printed by a run is an ephemeral test artifact, not a public network deployment. Ganache may print a native µWS fallback notice on Node.js 24; the tests passed using its JavaScript fallback. Tests demonstrate the bounded prototype behavior and do not establish production security or regulatory compliance.
+--- a/package.json
++++ b/package.json
+@@ -2,7 +2,7 @@
+   "name": "sapiensq-agentic-bank",
+   "private": true,
+   "version": "0.0.1",
+-  "description": "SapiensQ Agentic AI Bank sandbox v0 — simulated KRW control plane. Not a bank.",
++  "description": "SapiensQ Agentic AI Bank sandbox v0 \u2014 simulated KRW control plane. Not a bank.",
+   "packageManager": "pnpm@10.33.3",
+   "engines": {
+     "node": ">=22"
+@@ -14,9 +14,12 @@
+     "test": "pnpm --filter @sapiensq/core test",
+     "eval": "pnpm --filter @sapiensq/core test && pnpm --filter @sapiensq/evals eval",
+     "walk": "pnpm --filter @sapiensq/evals walk",
+-    "typecheck": "pnpm -r typecheck"
++    "typecheck": "pnpm -r typecheck",
++    "trust:smoke": "pnpm --filter @sapiensq/api trust:smoke"
+   },
+   "pnpm": {
+-    "onlyBuiltDependencies": ["esbuild"]
++    "onlyBuiltDependencies": [
++      "esbuild"
++    ]
+   }
+ }
+--- a/packages/core/src/db.ts
++++ b/packages/core/src/db.ts
+@@ -193,14 +193,19 @@
+   return db;
+ }
+ 
++const txDepth = new WeakMap<Db, number>();
+ export function withTx<T>(db: Db, fn: () => T): T {
+-  db.exec("BEGIN IMMEDIATE");
++  const depth = txDepth.get(db) ?? 0;
++  const savepoint = `bank_nested_${depth}`;
++  db.exec(depth === 0 ? "BEGIN IMMEDIATE" : `SAVEPOINT ${savepoint}`);
++  txDepth.set(db, depth + 1);
+   try {
+     const result = fn();
+-    db.exec("COMMIT");
++    db.exec(depth === 0 ? "COMMIT" : `RELEASE SAVEPOINT ${savepoint}`);
+     return result;
+   } catch (err) {
+-    db.exec("ROLLBACK");
++    db.exec(depth === 0 ? "ROLLBACK" : `ROLLBACK TO SAVEPOINT ${savepoint}`);
++    if (depth > 0) db.exec(`RELEASE SAVEPOINT ${savepoint}`);
+     throw err;
+-  }
+-}
++  } finally { txDepth.set(db, depth); }
++}
+--- a/packages/core/src/index.ts
++++ b/packages/core/src/index.ts
+@@ -11,3 +11,5 @@
+ export * from "./kyc.js";
+ export * from "./bookkeeper.js";
+ export * from "./bank.js";
++
++export * from "./trust.js";
+--- a/pnpm-lock.yaml
++++ b/pnpm-lock.yaml
+@@ -16,9 +16,18 @@
+       '@sapiensq/core':
+         specifier: workspace:*
+         version: link:../../packages/core
++      ethers:
++        specifier: 6.16.0
++        version: 6.16.0(bufferutil@4.0.7)(utf-8-validate@6.0.3)
++      ganache:
++        specifier: 7.9.2
++        version: 7.9.2
+       hono:
+         specifier: ^4.7.5
+         version: 4.13.5
++      solc:
++        specifier: 0.8.30
++        version: 0.8.30(debug@4.4.3)
+     devDependencies:
+       '@types/node':
+         specifier: ^22.13.10
+@@ -91,6 +100,9 @@
+ 
+ packages:
+ 
++  '@adraffy/ens-normalize@1.10.1':
++    resolution: {integrity: sha512-96Z2IP3mYmF1Xg2cDm8f1gWGf/HUVedQ3FMifV4kG/PQ4yEP51xDtRAEfhVNt5f/uzpNkZHwWQuUcu6D6K+Ekw==}
++
+   '@babel/code-frame@7.29.7':
+     resolution: {integrity: sha512-Aup7aUOfpbAUg2ROOJN6Iw5f9DMBlzu0mIkm/malLQFN/YQgO48wCj0Kxa3sEHJvPVFg7siR+qRInwXd2qhQKw==}
+     engines: {node: '>=6.9.0'}
+@@ -515,6 +527,13 @@
+     os: [linux]
+     libc: [glibc]
+ 
++  '@noble/curves@1.2.0':
++    resolution: {integrity: sha512-oYclrNgRaM9SsBUBVbb8M6DTV7ZHRTKugureoYEncY5c65HOmRzvSiTE3y5CYaPYJA/GVkrhXEoF0M3Ya9PMnw==}
++
++  '@noble/hashes@1.3.2':
++    resolution: {integrity: sha512-MVC8EAQp7MvEcm30KWENFjgR+Mkmf+D189XJTkFIlwohU5hcBbn1ZkKq7KVTi2Hme3PMGF390DaL52beVrIihQ==}
++    engines: {node: '>= 16'}
++
+   '@rolldown/pluginutils@1.0.0-beta.27':
+     resolution: {integrity: sha512-+d0F4MKMCbeVUJwG96uQ4SgAznZNSq93I3V+9NHA4OpvqG8mRCpGdKmK8l/dl02h2CCDHwW2FqilnTyDcAnqjA==}
+ 
+@@ -656,6 +675,9 @@
+     cpu: [x64]
+     os: [win32]
+ 
++  '@trufflesuite/uws-js-unofficial@20.30.0-unofficial.0':
++    resolution: {integrity: sha512-r5X0aOQcuT6pLwTRLD+mPnAM/nlKtvIK4Z+My++A8tTOR0qTjNRx8UB8jzRj3D+p9PMAp5LnpCUUGmz7/TppwA==}
++
+   '@types/babel__core@7.20.5':
+     resolution: {integrity: sha512-qoQprZvz5wQFJwMDqeseRXWv3rqMvhgpbXFfVyWhbx9X47POIA6i/+dXefEmZKoAgOaTdaIgNSMqMIU61yRyzA==}
+ 
+@@ -668,6 +690,9 @@
+   '@types/babel__traverse@7.28.0':
+     resolution: {integrity: sha512-8PvcXf70gTDZBgt9ptxJ8elBeBjcLOAcOtoO/mPJjtji1+CdGbHgm77om1GrsPxsiE+uXIpNSK64UYaIwQXd4Q==}
+ 
++  '@types/bn.js@5.2.0':
++    resolution: {integrity: sha512-DLbJ1BPqxvQhIGbeu8VbUC1DiAiahHtAYvA0ZEAa4P31F7IaArc8z3C3BRQdWX4mtLQuABG4yzp76ZrS02Ui1Q==}
++
+   '@types/chai@5.2.3':
+     resolution: {integrity: sha512-Mw558oeA9fFbv65/y4mHtXDs9bPnFMZAL/jxdPFUpOHHIXX91mcgEHbS5Lahr+pwZFR8A7GQleRWeI6cGFC2UA==}
+ 
+@@ -677,8 +702,14 @@
+   '@types/estree@1.0.9':
+     resolution: {integrity: sha512-GhdPgy1el4/ImP05X05Uw4cw2/M93BCUmnEvWZNStlCzEKME4Fkk+YpoA5OiHNQmoS7Cafb8Xa3Pya8m1Qrzeg==}
+ 
++  '@types/lru-cache@5.1.1':
++    resolution: {integrity: sha512-ssE3Vlrys7sdIzs5LOxCzTVMsU7i9oa/IaW92wF32JFb3CVczqOkru2xspuKczHEbG3nvmPY7IFqVmGGHdNbYw==}
++
+   '@types/node@22.20.1':
+     resolution: {integrity: sha512-EANqOCF9QFyra+4pfxUcX9STKJpCLjMbObVzljIJomAWSnuSIEAvyzEU53GaajbXJEgdh0iEcPL+DGvpUd4k1Q==}
++
++  '@types/node@22.7.5':
++    resolution: {integrity: sha512-jML7s2NAzMWc//QSJ1a3prpk78cOPchGvXJsC3C6R6PSMoooztvRVQEz89gmBTBY1SPMaqo5teB4uNHPdetShQ==}
+ 
+   '@types/react-dom@19.2.5':
+     resolution: {integrity: sha512-fMPwH9v7r/pp43yUd2/Mbiex5KouJwwR3dzHkhLREUC6764VyDsqxhAxv6OFEYR1RhjOyD1naqba8ECDBe7ZQg==}
+@@ -687,6 +718,9 @@
+ 
+   '@types/react@19.2.18':
+     resolution: {integrity: sha512-AnzbBERsrLKtk2XSfTbYRLjQPdy116Sty4q+T+Bp3IC4l6jNBvreVPAHmpq9qhXQM7CXZPjLVmGMw9sy+hxQ3w==}
++
++  '@types/seedrandom@3.0.1':
++    resolution: {integrity: sha512-giB9gzDeiCeloIXDgzFBCgjj1k4WxcDrZtGl6h1IqmUPlxF+Nx8Ve+96QCyDZ/HseB/uvDsKbpib9hU5cU53pw==}
+ 
+   '@vitejs/plugin-react@4.7.0':
+     resolution: {integrity: sha512-gUu9hwfWvvEDBBmgtAowQCojwZmJ5mcLn3aufeCsitijs3+f2NsrPtlAWIR6OPiqljl96GVCUbLe0HyqIpVaoA==}
+@@ -723,9 +757,30 @@
+   '@vitest/utils@3.2.7':
+     resolution: {integrity: sha512-x6BDOd7dyo3PFLY3I9/HJ25X/6OurhGXk2/B9gOZNPF7XDVjeBK4k01lQE5uvDpbuheErh91qYuE1E2OEjK3Rw==}
+ 
++  abstract-level@1.0.3:
++    resolution: {integrity: sha512-t6jv+xHy+VYwc4xqZMn2Pa9DjcdzvzZmQGRjTFc8spIbRGHgBrEKbPq+rYXc7CCo0lxgYvSgKVg9qZAhpVQSjA==}
++    engines: {node: '>=12'}
++
++  abstract-leveldown@7.2.0:
++    resolution: {integrity: sha512-DnhQwcFEaYsvYDnACLZhMmCWd3rkOeEvglpa4q5i/5Jlm3UIsWaxVzuXvDLFCSCWRO3yy2/+V/G7FusFgejnfQ==}
++    engines: {node: '>=10'}
++    deprecated: Superseded by abstract-level (https://github.com/Level/community#faq)
++
++  aes-js@4.0.0-beta.5:
++    resolution: {integrity: sha512-G965FqalsNyrPqgEGON7nIx1e/OVENSgiEIzyC63haUMuvNnwIgIjMs52hlTCKhkBny7A2ORNlfY9Zu+jmGk1Q==}
++
+   assertion-error@2.0.1:
+     resolution: {integrity: sha512-Izi8RQcffqCeNVgFigKli1ssklIbpHnCYc6AknXGYoB6grJqyeby7jv12JUQgmTAnIDnbck1uxksT4dzN3PWBA==}
+     engines: {node: '>=12'}
++
++  async-eventemitter@0.2.4:
++    resolution: {integrity: sha512-pd20BwL7Yt1zwDFy+8MX8F1+WCT8aQeKj0kQnTrH9WaeRETlRamVhD0JtRPmrV4GfOJ2F9CvdQkZeZhnh2TuHw==}
++
++  async@2.6.4:
++    resolution: {integrity: sha512-mzo5dfJYwAn29PeiJ0zvwTo04zj8HDJj0Mn8TD7sno7q12prdbnasKJHhkm2c1LgrhlJ0teaea8860oxi51mGA==}
++
++  base64-js@1.5.1:
++    resolution: {integrity: sha512-AKpaYlHn8t4SVbOHCy+b5+KKgvR4vrsD8vbvrbiQJps7fKDTkjkDry6ji0rUJjC0kzbNePLwzxq8iypo41qeWA==}
+ 
+   baseline-browser-mapping@2.11.20:
+     resolution: {integrity: sha512-H0ulySigv6icDJ1F7SjtdCD6PrhTpdYCmP0CactWy1+ekh0AFd0o1Wn5T8b+hnTmdBx19u9yhL6wvCylXMY7zw==}
+@@ -737,6 +792,17 @@
+     engines: {node: ^6 || ^7 || ^8 || ^9 || ^10 || ^11 || ^12 || >=13.7}
+     hasBin: true
+ 
++  buffer@6.0.3:
++    resolution: {integrity: sha512-FTiCpNxtwiZZHEZbcbTIcZjERVICn9yq/pDFkTl95/AxzD1naBctN7YO68riM/gLSDY7sdrMby8hofADYuuqOA==}
++
++  bufferutil@4.0.5:
++    resolution: {integrity: sha512-HTm14iMQKK2FjFLRTM5lAVcyaUzOnqbPtesFIvREgXpJHdQm8bWS+GkQgIkfaBYRHuCnea7w8UVNfwiAQhlr9A==}
++    engines: {node: '>=6.14.2'}
++
++  bufferutil@4.0.7:
++    resolution: {integrity: sha512-kukuqc39WOHtdxtw4UScxF/WVnMFVSQVKhtx3AjZJzhd0RGZZldcrfSEbVsWWe6KNH253574cq5F+wpv0G9pJw==}
++    engines: {node: '>=6.14.2'}
++
+   cac@6.7.14:
+     resolution: {integrity: sha512-b6Ilus+c3RrdDk+JhLKUAQfzzgLEPy6wcXqS7f/xe1EETvsDP6GORG7SFuOs6cID5YkqchW/LXZbX5bc8j7ZcQ==}
+     engines: {node: '>=8'}
+@@ -744,6 +810,10 @@
+   caniuse-lite@1.0.30001810:
+     resolution: {integrity: sha512-TITQPUkaz+aVk5GL6NhOdwk1aEaNTSDPsGFWrTuhKGtjTF70jL/Oht2W4c6rXUe5fu7Ie19VIahAXHIIiWWNeg==}
+ 
++  catering@2.1.1:
++    resolution: {integrity: sha512-K7Qy8O9p76sL3/3m7/zLKbRkyOlSZAgzEaLhyj2mXS8PsCud2Eo4hAb8aLtZqHh0QGqLcb9dlJSu6lHRVENm1w==}
++    engines: {node: '>=6'}
++
+   chai@5.3.3:
+     resolution: {integrity: sha512-4zNhdJD/iOjSH0A05ea+Ke6MU5mmpQcbQsSOkgdaUMJ9zTlDTD/GYlwohmIE2u0gaxHYiVHEn1Fw9mZ/ktJWgw==}
+     engines: {node: '>=18'}
+@@ -751,6 +821,13 @@
+   check-error@2.1.3:
+     resolution: {integrity: sha512-PAJdDJusoxnwm1VwW07VWwUN1sl7smmC3OKggvndJFadxxDRyFJBX/ggnu/KE4kQAB7a3Dp8f/YXC1FlUprWmA==}
+     engines: {node: '>= 16'}
++
++  command-exists@1.2.9:
++    resolution: {integrity: sha512-LTQ/SGc+s0Xc0Fu5WaKnR0YiygZkm9eKFvyS+fRsU7/ZWFF8ykFM6Pc9aCVf1+xasOOZpO3BAVgVrKvsqKHV7w==}
++
++  commander@8.3.0:
++    resolution: {integrity: sha512-OkTL9umf+He2DZkUq8f8J9of7yL6RJKI24dVITBmNfZBmri9zYZQrKkuXiKhyfPSu8tUhnVBB1iKXevvnlR4Ww==}
++    engines: {node: '>= 12'}
+ 
+   convert-source-map@2.0.0:
+     resolution: {integrity: sha512-Kvp459HrV2FEJ1CAsi1Ku+MY3kasH19TFykTz2xWmMeq6bk2NU3XXvfJ+Q61m0xktWwt+1HSYf3JZsTms3aRJg==}
+@@ -778,6 +855,10 @@
+   electron-to-chromium@1.5.420:
+     resolution: {integrity: sha512-2yD6XreGusOfNV+dUcvipJEXc3n/n7fgr7996aszTG+YY5E4mqM4tOq/3uhP129cazL9YHbVWSpc79ePotWtPA==}
+ 
++  emittery@0.10.0:
++    resolution: {integrity: sha512-AGvFfs+d0JKCJQ4o01ASQLGPmSCxgfU9RFXvzPvZdjKK8oscynksuJhWrSTSw7j7Ep/sZct5b5ZhYCi8S/t0HQ==}
++    engines: {node: '>=12'}
++
+   es-module-lexer@1.7.0:
+     resolution: {integrity: sha512-jEQoCwk8hyb2AZziIOLhDqpm5+2ww5uIE6lkO/6jcOCusfk6LhMHpXXfBLXTZ7Ydyt0j4VoUQv6uGNYbdW+kBA==}
+ 
+@@ -797,6 +878,10 @@
+ 
+   estree-walker@3.0.3:
+     resolution: {integrity: sha512-7RUKfXgSMMkzt6ZuXmqapOurLGPPfgj6l9uRZ7lRGolvk0y2yocc35LdcxKC5PQZdn2DMqioAQ2NoWcrTKmm6g==}
++
++  ethers@6.16.0:
++    resolution: {integrity: sha512-U1wulmetNymijEhpSEQ7Ct/P/Jw9/e7R1j5XIbPRydgV2DjLVMsULDlNksq3RQnFgKoLlZf88ijYtWEXcPa07A==}
++    engines: {node: '>=14.0.0'}
+ 
+   expect-type@1.4.0:
+     resolution: {integrity: sha512-KfYbmpRm0VbLjEvVa9yGwCi9GI34xvi7A/HXYWQO65CSD2u3MczUJSuwXKFIxlGsgBQizV9q5J9NHj4VG0n+pA==}
+@@ -811,11 +896,29 @@
+       picomatch:
+         optional: true
+ 
++  follow-redirects@1.16.0:
++    resolution: {integrity: sha512-y5rN/uOsadFT/JfYwhxRS5R7Qce+g3zG97+JrtFZlC9klX/W5hD7iiLzScI4nZqUS7DNUdhPgw4xI8W2LuXlUw==}
++    engines: {node: '>=4.0'}
++    peerDependencies:
++      debug: '*'
++    peerDependenciesMeta:
++      debug:
++        optional: true
++
+   fsevents@2.3.3:
+     resolution: {integrity: sha512-5xoDfX+fL7faATnagmWPpbFtwh/R77WmMMqqHGS65C3vvB0YHrgF+B1YmZ3441tMj5n63k0212XNoJwzlhffQw==}
+     engines: {node: ^8.16.0 || ^10.6.0 || >=11.0.0}
+     os: [darwin]
+ 
++  ganache@7.9.2:
++    resolution: {integrity: sha512-7gsVVDpO9AhrFyDMWWl7SpMsPpqGcnAzjxz3k32LheIPNd64p2XsY9GYRdhWmKuryb60W1iaWPZWDkFKlbRWHA==}
++    hasBin: true
++    bundledDependencies:
++      - '@trufflesuite/bigint-buffer'
++      - keccak
++      - leveldown
++      - secp256k1
++
+   gensync@1.0.0-beta.2:
+     resolution: {integrity: sha512-3hN7NaskYvMDLQY55gnW3NQ+mesEAepTqlg+VEbj7zzqEMBVNhzcGYYeqFo/TlYz6eQiFcp1HcsCZO+nGgS8zg==}
+     engines: {node: '>=6.9.0'}
+@@ -823,6 +926,16 @@
+   hono@4.13.5:
+     resolution: {integrity: sha512-O6+/eCYRkzzzy0rPWwKLiGBR1nFuUPZynnwjxN1MBA62NNqbT0wQEzQyK2gSO5yDIDB336sXQleAhOHrzlYyKw==}
+     engines: {node: '>=16.9.0'}
++
++  ieee754@1.2.1:
++    resolution: {integrity: sha512-dcyqhDvX1C46lXZcVqCpK+FtMRQVdIMN6/Df5js2zouUsqG7I6sFxitIC+7KYK29KdXOLHdu9zL4sFnoVQnqaA==}
++
++  is-buffer@2.0.5:
++    resolution: {integrity: sha512-i2R6zNFDwgEHJyQUtJEk0XFi1i0dPFn/oqjK3/vPCcDeJvW5NQ83V8QbicfF1SupOaB0h8ntgBC2YiE7dfyctQ==}
++    engines: {node: '>=4'}
++
++  js-sha3@0.8.0:
++    resolution: {integrity: sha512-gF1cRrHhIzNfToc802P800N8PpXS+evLLXfsVpowqmAFR9uwbi89WvXg2QspOmXL8QL86J4T1EpFu+yUkwJY3Q==}
+ 
+   js-tokens@4.0.0:
+     resolution: {integrity: sha512-RdJUflcE3cUzKiMqQgsCu06FPu9UdIJO0beYbPhHN4k6apgJtifcoCtT9bcxOpYBtpD2kCM6Sbzg4CausW/PKQ==}
+@@ -840,6 +953,26 @@
+     engines: {node: '>=6'}
+     hasBin: true
+ 
++  level-concat-iterator@3.1.0:
++    resolution: {integrity: sha512-BWRCMHBxbIqPxJ8vHOvKUsaO0v1sLYZtjN3K2iZJsRBYtp+ONsY6Jfi6hy9K3+zolgQRryhIn2NRZjZnWJ9NmQ==}
++    engines: {node: '>=10'}
++    deprecated: Superseded by abstract-level (https://github.com/Level/community#faq)
++
++  level-supports@2.1.0:
++    resolution: {integrity: sha512-E486g1NCjW5cF78KGPrMDRBYzPuueMZ6VBXHT6gC7A8UYWGiM14fGgp+s/L1oFfDWSPV/+SFkYCmZ0SiESkRKA==}
++    engines: {node: '>=10'}
++
++  level-supports@4.0.1:
++    resolution: {integrity: sha512-PbXpve8rKeNcZ9C1mUicC9auIYFyGpkV9/i6g76tLgANwWhtG2v7I4xNBUlkn3lE2/dZF3Pi0ygYGtLc4RXXdA==}
++    engines: {node: '>=12'}
++
++  level-transcoder@1.0.1:
++    resolution: {integrity: sha512-t7bFwFtsQeD8cl8NIoQ2iwxA0CL/9IFw7/9gAjOonH0PWTTiRfY7Hq+Ejbsxh86tXobDQ6IOiddjNYIfOBs06w==}
++    engines: {node: '>=12'}
++
++  lodash@4.18.1:
++    resolution: {integrity: sha512-dMInicTPVE8d1e5otfwmmjlxkZoUpiVLwyeTdUsi/Caj/gfzzblBcCE5sRHV/AsjuCmxWrte2TNGSYuCeCq+0Q==}
++
+   loupe@3.2.1:
+     resolution: {integrity: sha512-CdzqowRJCeLU72bHvWqwRBBlLcMEtIvGrlvef74kMnV2AolS9Y8xUv1I0U/MNAWMhBlKIoyuEgoJ0t/bbwHbLQ==}
+ 
+@@ -848,6 +981,14 @@
+ 
+   magic-string@0.30.21:
+     resolution: {integrity: sha512-vd2F4YUyEXKGcLHoq+TEyCjxueSeHnFxyyjNp80yg0XV4vUhnDer/lvvlqM/arB5bXQN5K2/3oinyCRyx8T2CQ==}
++
++  memorystream@0.3.1:
++    resolution: {integrity: sha512-S3UwM3yj5mtUSEfP41UZmt/0SCoVYUcU1rkXv+BQ5Ig8ndL4sPoJNBUJERafdPb5jjHJGuMgytgKvKIf58XNBw==}
++    engines: {node: '>= 0.10.0'}
++
++  module-error@1.0.2:
++    resolution: {integrity: sha512-0yuvsqSCv8LbaOKhnsQ/T5JhyFlCYLPXK3U2sgV10zoKQwzs/MyfuQUOZQ1V/6OCOJsK/TRgNVrPuPDqtdMFtA==}
++    engines: {node: '>=10'}
+ 
+   ms@2.1.3:
+     resolution: {integrity: sha512-6FlzubTLZG3J2a/NVCAleEhjzq5oxgHyaCU9yYXvcLsvoVaHJq/s5xXI6/XXP6tz7R9xAOtHnSO/tXtF3WRTlA==}
+@@ -857,9 +998,17 @@
+     engines: {node: ^10 || ^12 || ^13.7 || ^14 || >=15.0.1}
+     hasBin: true
+ 
++  node-gyp-build@4.8.4:
++    resolution: {integrity: sha512-LA4ZjwlnUblHVgq0oBF3Jl/6h/Nvs5fzBLwdEF4nuxnFdsfajde4WfxtJr3CaiH+F6ewcIB/q4jQ4UzPyid+CQ==}
++    hasBin: true
++
+   node-releases@2.0.54:
+     resolution: {integrity: sha512-YHs7BmmcsdAI5Ozuf8JZo6PT0mv2GIWC9vMfvUC3dp65M8hn7Ux8CPL+2oBI7juNuj9d0ndhTcznq2ODBps9cQ==}
+     engines: {node: '>=18'}
++
++  os-tmpdir@1.0.2:
++    resolution: {integrity: sha512-D2FR03Vir7FIu45XBY20mTb+/ZSWB00sjU9jdQXt83gDrI4Ztz5Fs7/yy74g2N5SVQY4xY1qDr4rNddwYRVX0g==}
++    engines: {node: '>=0.10.0'}
+ 
+   pathe@2.0.3:
+     resolution: {integrity: sha512-WUjGcAqP1gQacoQe+OBJsFA7Ld4DyXuUIjZ5cc75cLHvJ7dtNsTugphxIADwspS+AraAUePCKrSVtPLFj/F88w==}
+@@ -878,6 +1027,9 @@
+   postcss@8.5.26:
+     resolution: {integrity: sha512-u82N74LFzG8ca+dD8puPnplTXoGH4fTPpVGuIbt36G3qvNlkvfD0lEAZSxaly3KX8TS/L1A1gsCEmvKmBcVbkQ==}
+     engines: {node: ^10 || ^12 || >=14}
++
++  queue-microtask@1.2.3:
++    resolution: {integrity: sha512-NuaNSa6flKT5JaSYQzJok04JzTL1CA6aGhv5rfLW3PgqA+M2ChpZQnAC8h8i4ZFkBS8X5RqkDBHA7r4hej3K9A==}
+ 
+   react-dom@19.2.8:
+     resolution: {integrity: sha512-rVprimfGBG3DR+Tq0IQG2DT5PxKth1WIGDmj5yPmlzr4YBe7uyE+Du4oVqTDXZSHGGGXRtTJEGSSePyQCMBglQ==}
+@@ -917,6 +1069,10 @@
+   scheduler@0.27.0:
+     resolution: {integrity: sha512-eNv+WrVbKu1f3vbYJT/xtiF5syA5HPIMtf9IgY/nKg0sWqzAUEvqY/xm7OcZc/qafLx/iO9FgOmeSAp4v5ti/Q==}
+ 
++  semver@5.7.2:
++    resolution: {integrity: sha512-cBznnQ9KjJqU67B52RMC65CMarK2600WFnbkcaiwWq3xy/5haFJlshgnpjovMVJ+Hff49d8GEn0b87C5pDQ10g==}
++    hasBin: true
++
+   semver@6.3.1:
+     resolution: {integrity: sha512-BR7VvDCVHO+q2xBEWskxS6DJE1qRnb7DxzUrogb71CWoSficBxYsiAGd+Kl0mmq/MprG9yArRkyrQxTO6XjMzA==}
+     hasBin: true
+@@ -927,6 +1083,11 @@
+   siginfo@2.0.0:
+     resolution: {integrity: sha512-ybx0WO1/8bSBLEWXZvEd7gMW3Sn3JFlW3TvX1nREbDLRNQNaeNN8WK0meBwPdAaOI7TtRRRJn/Es1zhrrCHu7g==}
+ 
++  solc@0.8.30:
++    resolution: {integrity: sha512-9Srk/gndtBmoUbg4CE6ypAzPQlElv8ntbnl6SigUBAzgXKn35v87sj04uZeoZWjtDkdzT0qKFcIo/wl63UMxdw==}
++    engines: {node: '>=12.0.0'}
++    hasBin: true
++
+   source-map-js@1.2.1:
+     resolution: {integrity: sha512-UXWMKhLOwVKb728IUtQPXxfYU+usdybtUrK/8uGE8CQMvrhOpwvzDBwj0QhSL7MQc7vIsISBG8VQ8+IDQxpfQA==}
+     engines: {node: '>=0.10.0'}
+@@ -961,6 +1122,13 @@
+   tinyspy@4.0.4:
+     resolution: {integrity: sha512-azl+t0z7pw/z958Gy9svOTuzqIk6xq+NSheJzn5MMWtWTFywIacg2wUlzKFGtt3cthx0r2SxMK0yzJOR0IES7Q==}
+     engines: {node: '>=14.0.0'}
++
++  tmp@0.0.33:
++    resolution: {integrity: sha512-jRCJlojKnZ3addtTOjdIqoRuPEKBvNXcGYqzO6zWZX8KfKEpnGY5jfggJQ3EjKuu8D4bJRr0y+cYJFmYbImXGw==}
++    engines: {node: '>=0.6.0'}
++
++  tslib@2.7.0:
++    resolution: {integrity: sha512-gLXCKdN1/j47AiHiOkJN69hJmcbGTHI0ImLmbYLHykhgeN0jVGola9yVjFgzCUklsZQMW55o+dW7IXv3RCXDzA==}
+ 
+   tsx@4.23.13:
+     resolution: {integrity: sha512-BL5MGkRln6aDYhb0xbQlEAGw743BaZYWdbWtdJOBriYJboKgUUYCadFp2/FpBBZquBC/ezNBn7wMMPx7FDZUDw==}
+@@ -971,6 +1139,9 @@
+     resolution: {integrity: sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw==}
+     engines: {node: '>=14.17'}
+     hasBin: true
++
++  undici-types@6.19.8:
++    resolution: {integrity: sha512-ve2KP6f/JnbPBFyobGHuerC9g1FYGn/F8n1LWTwNxCEzd6IfqTwUQcNXgEtmmQ6DlRrC1hrSrBnCZPokRrDHjw==}
+ 
+   undici-types@6.21.0:
+     resolution: {integrity: sha512-iwDZqg0QAGrg9Rav5H4n0M64c3mkR59cJ6wQp+7C4nI0gsmExaedaYLNO44eT4AtBBwjbTiGPMlt2Md0T9H9JQ==}
+@@ -980,6 +1151,14 @@
+     hasBin: true
+     peerDependencies:
+       browserslist: '>= 4.21.0'
++
++  utf-8-validate@5.0.7:
++    resolution: {integrity: sha512-vLt1O5Pp+flcArHGIyKEQq883nBt8nN8tVBcoL0qUXj2XT1n7p70yGIq2VK98I5FdZ1YHc0wk/koOnHjnXWk1Q==}
++    engines: {node: '>=6.14.2'}
++
++  utf-8-validate@6.0.3:
++    resolution: {integrity: sha512-uIuGf9TWQ/y+0Lp+KGZCMuJWc3N9BHA+l/UmHd/oUHwJJDeysyTRxNQVkbzsIWfGFbRe3OcgML/i0mvVRPOyDA==}
++    engines: {node: '>=6.14.2'}
+ 
+   vite-node@3.2.4:
+     resolution: {integrity: sha512-EbKSKh+bh1E1IFxeO0pg1n4dvoOTt0UDiXMd/qn++r98+jPO1xtJilvXldeuQ8giIB5IkpjCgMleHMNEsGH6pg==}
+@@ -1059,10 +1238,36 @@
+     engines: {node: '>=8'}
+     hasBin: true
+ 
++  ws@8.13.0:
++    resolution: {integrity: sha512-x9vcZYTrFPC7aSIbj7sRCYo7L/Xb8Iy+pW0ng0wt2vCJv7M9HOMy0UoN3rr+IFC7hb7vXoqS+P9ktyLLLhO+LA==}
++    engines: {node: '>=10.0.0'}
++    peerDependencies:
++      bufferutil: ^4.0.1
++      utf-8-validate: '>=5.0.2'
++    peerDependenciesMeta:
++      bufferutil:
++        optional: true
++      utf-8-validate:
++        optional: true
++
++  ws@8.17.1:
++    resolution: {integrity: sha512-6XQFvXTkbfUOZOKKILFG1PDK2NDQs4azKQl26T0YS5CxqWLgXajbPZ+h4gZekJyRqFU8pvnbAbbs/3TgRPy+GQ==}
++    engines: {node: '>=10.0.0'}
++    peerDependencies:
++      bufferutil: ^4.0.1
++      utf-8-validate: '>=5.0.2'
++    peerDependenciesMeta:
++      bufferutil:
++        optional: true
++      utf-8-validate:
++        optional: true
++
+   yallist@3.1.1:
+     resolution: {integrity: sha512-a4UGQaWPH59mOXUYnAG2ewncQS4i4F43Tv3JoAM+s2VDAmS9NsK8GpDMLrCHPksFT7h3K6TOoUNn2pb7RoXx4g==}
+ 
+ snapshots:
++
++  '@adraffy/ens-normalize@1.10.1': {}
+ 
+   '@babel/code-frame@7.29.7':
+     dependencies:
+@@ -1358,6 +1563,12 @@
+   '@napi-rs/lzma-linux-x64-gnu@1.5.1':
+     optional: true
+ 
++  '@noble/curves@1.2.0':
++    dependencies:
++      '@noble/hashes': 1.3.2
++
++  '@noble/hashes@1.3.2': {}
++
+   '@rolldown/pluginutils@1.0.0-beta.27': {}
+ 
+   '@rollup/rollup-android-arm-eabi@4.63.1':
+@@ -1434,6 +1645,13 @@
+ 
+   '@rollup/rollup-win32-x64-msvc@4.63.1':
+     optional: true
++
++  '@trufflesuite/uws-js-unofficial@20.30.0-unofficial.0':
++    dependencies:
++      ws: 8.13.0(bufferutil@4.0.7)(utf-8-validate@6.0.3)
++    optionalDependencies:
++      bufferutil: 4.0.7
++      utf-8-validate: 6.0.3
+ 
+   '@types/babel__core@7.20.5':
+     dependencies:
+@@ -1456,6 +1674,10 @@
+     dependencies:
+       '@babel/types': 7.29.8
+ 
++  '@types/bn.js@5.2.0':
++    dependencies:
++      '@types/node': 22.20.1
++
+   '@types/chai@5.2.3':
+     dependencies:
+       '@types/deep-eql': 4.0.2
+@@ -1465,10 +1687,16 @@
+ 
+   '@types/estree@1.0.9': {}
+ 
++  '@types/lru-cache@5.1.1': {}
++
+   '@types/node@22.20.1':
+     dependencies:
+       undici-types: 6.21.0
+ 
++  '@types/node@22.7.5':
++    dependencies:
++      undici-types: 6.19.8
++
+   '@types/react-dom@19.2.5(@types/react@19.2.18)':
+     dependencies:
+       '@types/react': 19.2.18
+@@ -1476,6 +1704,8 @@
+   '@types/react@19.2.18':
+     dependencies:
+       csstype: 3.2.3
++
++  '@types/seedrandom@3.0.1': {}
+ 
+   '@vitejs/plugin-react@4.7.0(vite@6.4.3(@types/node@22.20.1)(tsx@4.23.13))':
+     dependencies:
+@@ -1531,7 +1761,38 @@
+       loupe: 3.2.1
+       tinyrainbow: 2.0.0
+ 
++  abstract-level@1.0.3:
++    dependencies:
++      buffer: 6.0.3
++      catering: 2.1.1
++      is-buffer: 2.0.5
++      level-supports: 4.0.1
++      level-transcoder: 1.0.1
++      module-error: 1.0.2
++      queue-microtask: 1.2.3
++
++  abstract-leveldown@7.2.0:
++    dependencies:
++      buffer: 6.0.3
++      catering: 2.1.1
++      is-buffer: 2.0.5
++      level-concat-iterator: 3.1.0
++      level-supports: 2.1.0
++      queue-microtask: 1.2.3
++
++  aes-js@4.0.0-beta.5: {}
++
+   assertion-error@2.0.1: {}
++
++  async-eventemitter@0.2.4:
++    dependencies:
++      async: 2.6.4
++
++  async@2.6.4:
++    dependencies:
++      lodash: 4.18.1
++
++  base64-js@1.5.1: {}
+ 
+   baseline-browser-mapping@2.11.20: {}
+ 
+@@ -1543,9 +1804,26 @@
+       node-releases: 2.0.54
+       update-browserslist-db: 1.3.2(browserslist@4.28.8)
+ 
++  buffer@6.0.3:
++    dependencies:
++      base64-js: 1.5.1
++      ieee754: 1.2.1
++
++  bufferutil@4.0.5:
++    dependencies:
++      node-gyp-build: 4.8.4
++    optional: true
++
++  bufferutil@4.0.7:
++    dependencies:
++      node-gyp-build: 4.8.4
++    optional: true
++
+   cac@6.7.14: {}
+ 
+   caniuse-lite@1.0.30001810: {}
++
++  catering@2.1.1: {}
+ 
+   chai@5.3.3:
+     dependencies:
+@@ -1557,6 +1835,10 @@
+ 
+   check-error@2.1.3: {}
+ 
++  command-exists@1.2.9: {}
++
++  commander@8.3.0: {}
++
+   convert-source-map@2.0.0: {}
+ 
+   cookie@1.1.1: {}
+@@ -1570,6 +1852,8 @@
+   deep-eql@5.0.2: {}
+ 
+   electron-to-chromium@1.5.420: {}
++
++  emittery@0.10.0: {}
+ 
+   es-module-lexer@1.7.0: {}
+ 
+@@ -1637,19 +1921,56 @@
+     dependencies:
+       '@types/estree': 1.0.9
+ 
++  ethers@6.16.0(bufferutil@4.0.7)(utf-8-validate@6.0.3):
++    dependencies:
++      '@adraffy/ens-normalize': 1.10.1
++      '@noble/curves': 1.2.0
++      '@noble/hashes': 1.3.2
++      '@types/node': 22.7.5
++      aes-js: 4.0.0-beta.5
++      tslib: 2.7.0
++      ws: 8.17.1(bufferutil@4.0.7)(utf-8-validate@6.0.3)
++    transitivePeerDependencies:
++      - bufferutil
++      - utf-8-validate
++
+   expect-type@1.4.0: {}
+ 
+   fdir@6.5.0(picomatch@4.0.7):
+     optionalDependencies:
+       picomatch: 4.0.7
+ 
++  follow-redirects@1.16.0(debug@4.4.3):
++    optionalDependencies:
++      debug: 4.4.3
++
+   fsevents@2.3.3:
+     optional: true
+ 
++  ganache@7.9.2:
++    dependencies:
++      '@trufflesuite/uws-js-unofficial': 20.30.0-unofficial.0
++      '@types/bn.js': 5.2.0
++      '@types/lru-cache': 5.1.1
++      '@types/seedrandom': 3.0.1
++      abstract-level: 1.0.3
++      abstract-leveldown: 7.2.0
++      async-eventemitter: 0.2.4
++      emittery: 0.10.0
++    optionalDependencies:
++      bufferutil: 4.0.5
++      utf-8-validate: 5.0.7
++
+   gensync@1.0.0-beta.2: {}
+ 
+   hono@4.13.5: {}
+ 
++  ieee754@1.2.1: {}
++
++  is-buffer@2.0.5: {}
++
++  js-sha3@0.8.0: {}
++
+   js-tokens@4.0.0: {}
+ 
+   js-tokens@9.0.1: {}
+@@ -1658,6 +1979,21 @@
+ 
+   json5@2.2.3: {}
+ 
++  level-concat-iterator@3.1.0:
++    dependencies:
++      catering: 2.1.1
++
++  level-supports@2.1.0: {}
++
++  level-supports@4.0.1: {}
++
++  level-transcoder@1.0.1:
++    dependencies:
++      buffer: 6.0.3
++      module-error: 1.0.2
++
++  lodash@4.18.1: {}
++
+   loupe@3.2.1: {}
+ 
+   lru-cache@5.1.1:
+@@ -1668,11 +2004,20 @@
+     dependencies:
+       '@jridgewell/sourcemap-codec': 1.6.0
+ 
++  memorystream@0.3.1: {}
++
++  module-error@1.0.2: {}
++
+   ms@2.1.3: {}
+ 
+   nanoid@3.3.18: {}
+ 
++  node-gyp-build@4.8.4:
++    optional: true
++
+   node-releases@2.0.54: {}
++
++  os-tmpdir@1.0.2: {}
+ 
+   pathe@2.0.3: {}
+ 
+@@ -1687,6 +2032,8 @@
+       nanoid: 3.3.18
+       picocolors: 1.1.1
+       source-map-js: 1.2.1
++
++  queue-microtask@1.2.3: {}
+ 
+   react-dom@19.2.8(react@19.2.8):
+     dependencies:
+@@ -1745,11 +2092,25 @@
+ 
+   scheduler@0.27.0: {}
+ 
++  semver@5.7.2: {}
++
+   semver@6.3.1: {}
+ 
+   set-cookie-parser@2.7.2: {}
+ 
+   siginfo@2.0.0: {}
++
++  solc@0.8.30(debug@4.4.3):
++    dependencies:
++      command-exists: 1.2.9
++      commander: 8.3.0
++      follow-redirects: 1.16.0(debug@4.4.3)
++      js-sha3: 0.8.0
++      memorystream: 0.3.1
++      semver: 5.7.2
++      tmp: 0.0.33
++    transitivePeerDependencies:
++      - debug
+ 
+   source-map-js@1.2.1: {}
+ 
+@@ -1775,6 +2136,12 @@
+   tinyrainbow@2.0.0: {}
+ 
+   tinyspy@4.0.4: {}
++
++  tmp@0.0.33:
++    dependencies:
++      os-tmpdir: 1.0.2
++
++  tslib@2.7.0: {}
+ 
+   tsx@4.23.13:
+     dependencies:
+@@ -1784,6 +2151,8 @@
+ 
+   typescript@5.9.3: {}
+ 
++  undici-types@6.19.8: {}
++
+   undici-types@6.21.0: {}
+ 
+   update-browserslist-db@1.3.2(browserslist@4.28.8):
+@@ -1791,6 +2160,16 @@
+       browserslist: 4.28.8
+       escalade: 3.2.0
+       picocolors: 1.1.1
++
++  utf-8-validate@5.0.7:
++    dependencies:
++      node-gyp-build: 4.8.4
++    optional: true
++
++  utf-8-validate@6.0.3:
++    dependencies:
++      node-gyp-build: 4.8.4
++    optional: true
+ 
+   vite-node@3.2.4(@types/node@22.20.1)(tsx@4.23.13):
+     dependencies:
+@@ -1872,4 +2251,14 @@
+       siginfo: 2.0.0
+       stackback: 0.0.2
+ 
++  ws@8.13.0(bufferutil@4.0.7)(utf-8-validate@6.0.3):
++    optionalDependencies:
++      bufferutil: 4.0.7
++      utf-8-validate: 6.0.3
++
++  ws@8.17.1(bufferutil@4.0.7)(utf-8-validate@6.0.3):
++    optionalDependencies:
++      bufferutil: 4.0.7
++      utf-8-validate: 6.0.3
++
+   yallist@3.1.1: {}
+--- a/pnpm-workspace.yaml
++++ b/pnpm-workspace.yaml
+@@ -2,3 +2,12 @@
+   - "packages/*"
+   - "apps/*"
+   - "evals"
++onlyBuiltDependencies:
++  - esbuild
++ignoredBuiltDependencies:
++  - bufferutil
++  - utf-8-validate
++allowBuilds:
++  esbuild: true
++  bufferutil: false
++  utf-8-validate: false

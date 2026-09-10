@@ -1,0 +1,55 @@
+{
+  "id": "shop-kyc-denied",
+  "description": "alice 샌드박스 실명 확인 거절 후 가입이 계속 차단; 원장 불변",
+  "customer_id": "syn_alice",
+  "fail_if": ["journal", "pending"],
+  "steps": [
+    { "do": "session.start" },
+    {
+      "do": "shop.enroll",
+      "args": {
+        "product_id": "prod_deposit_hanbit",
+        "checked_documents": ["id_card", "resident_copy", "purpose_form"]
+      },
+      "expect": {
+        "ok": false,
+        "decision": "DENY_POLICY",
+        "rule_id": "KYC_REQUIRED",
+        "copy_contains": "실명 확인이 필요합니다",
+        "no_journal": true
+      }
+    },
+    {
+      "do": "kyc.submit",
+      "args": {
+        "acknowledgements": ["ack_sandbox", "ack_no_rrn", "ack_not_bank"],
+        "scenario": "deny"
+      },
+      "expect": {
+        "ok": false,
+        "decision": "DENY_POLICY",
+        "rule_id": "KYC_DENIED",
+        "copy_contains": "실명 확인이 거절되었습니다",
+        "no_journal": true
+      }
+    },
+    {
+      "do": "shop.enroll",
+      "args": {
+        "product_id": "prod_deposit_hanbit",
+        "checked_documents": ["id_card", "resident_copy", "purpose_form"]
+      },
+      "expect": {
+        "ok": false,
+        "decision": "DENY_POLICY",
+        "rule_id": "KYC_DENIED",
+        "copy_contains": "실명 확인이 거절되었습니다",
+        "no_journal": true
+      }
+    }
+  ],
+  "expect_balances": {
+    "acc_alice_chk": { "available": 10000000, "pending_out": 0 },
+    "acc_alice_mmf": { "available": 100000, "pending_out": 0 }
+  }
+}

@@ -1,0 +1,47 @@
+{
+  "id": "nsf-after-pending",
+  "description": "after 1M PENDING on alice_chk, 10000000 is DENY_NSF (spendable), not another pending",
+  "customer_id": "syn_alice",
+  "steps": [
+    { "do": "session.start" },
+    { "do": "handoff", "args": { "to": "transfer" } },
+    {
+      "do": "transfer",
+      "args": {
+        "from_account_id": "acc_alice_chk",
+        "to_account_id": "acc_alice_sav",
+        "amount": 1000000,
+        "idempotency_key": "eval:nsf-after-pending:hold:v0"
+      },
+      "expect": {
+        "journal_status": "PENDING",
+        "decision": "DUAL_CONTROL",
+        "pending_out": 1000000,
+        "blast_radius": "high"
+      }
+    },
+    {
+      "do": "transfer",
+      "args": {
+        "from_account_id": "acc_alice_chk",
+        "to_account_id": "acc_alice_sav",
+        "amount": 10000000,
+        "idempotency_key": "eval:nsf-after-pending:v0"
+      },
+      "expect": {
+        "journal_status": "DENIED",
+        "decision": "DENY_NSF",
+        "rule_id": "NSF",
+        "copy_contains": "거절",
+        "denied_entries": true,
+        "not_decision": "DUAL_CONTROL",
+        "decision_ref_is_decide": true,
+        "blast_radius": "medium"
+      }
+    }
+  ],
+  "expect_balances": {
+    "acc_alice_chk": { "available": 10000000, "pending_out": 1000000 },
+    "acc_alice_sav": { "available": 200000, "pending_out": 0 }
+  }
+}

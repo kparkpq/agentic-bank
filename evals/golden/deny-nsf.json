@@ -1,0 +1,48 @@
+{
+  "id": "deny-nsf",
+  "description": "bob chk→sav 600000 DENIED NSF; 거절 copy; posted=0 pair; replay eval:deny-nsf:v0",
+  "customer_id": "syn_bob",
+  "fail_if": ["pending"],
+  "steps": [
+    { "do": "session.start" },
+    { "do": "handoff", "args": { "to": "transfer" } },
+    {
+      "do": "transfer",
+      "args": {
+        "from_account_id": "acc_bob_chk",
+        "to_account_id": "acc_bob_sav",
+        "amount": 600000,
+        "idempotency_key": "eval:deny-nsf:v0"
+      },
+      "expect": {
+        "journal_status": "DENIED",
+        "decision": "DENY_NSF",
+        "rule_id": "NSF",
+        "copy_contains": "거절",
+        "denied_entries": true,
+        "decision_ref_is_decide": true,
+        "blast_radius": "medium"
+      }
+    },
+    {
+      "do": "transfer",
+      "args": {
+        "from_account_id": "acc_bob_chk",
+        "to_account_id": "acc_bob_sav",
+        "amount": 600000,
+        "idempotency_key": "eval:deny-nsf:v0"
+      },
+      "expect": {
+        "journal_status": "DENIED",
+        "decision": "DENY_NSF",
+        "same_journal_id": true,
+        "same_decision_ref": true,
+        "denied_entries": true
+      }
+    }
+  ],
+  "expect_balances": {
+    "acc_bob_chk": { "available": 500000, "pending_out": 0 },
+    "acc_bob_sav": { "available": 100000, "pending_out": 0 }
+  }
+}

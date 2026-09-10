@@ -1,0 +1,16 @@
+node_modules
+.git
+data
+.env*
+*.pem
+*.key
+*.p12
+*.jwk
+secrets
+*.sqlite
+playwright-report
+test-results
+dist
+.vite
+coverage
+*.log

@@ -1,0 +1,78 @@
+{
+  "id": "shop-enroll-posted",
+  "description": "alice 샌드박스 실명 확인 후 한빛 정기예금 가입 완료; 원장 잔액 불변; replay eval:shop-deposit:v0",
+  "customer_id": "syn_alice",
+  "fail_if": ["pending"],
+  "steps": [
+    { "do": "session.start" },
+    {
+      "do": "shop.enroll",
+      "args": {
+        "product_id": "prod_deposit_hanbit",
+        "checked_documents": ["id_card", "resident_copy", "purpose_form"]
+      },
+      "expect": {
+        "ok": false,
+        "decision": "DENY_POLICY",
+        "rule_id": "KYC_REQUIRED",
+        "copy_contains": "실명 확인이 필요합니다",
+        "no_journal": true
+      }
+    },
+    {
+      "do": "kyc.submit",
+      "args": {
+        "display_name": "앨리스",
+        "phone": "syn_phone_01000000000",
+        "email": "syn_alice@sandbox.invalid",
+        "id_placeholder": "syn_id_placeholder",
+        "acknowledgements": ["ack_sandbox", "ack_no_rrn", "ack_not_bank"],
+        "scenario": "pass"
+      },
+      "expect": {
+        "ok": true,
+        "decision": "ALLOW",
+        "rule_id": "KYC_PASSED",
+        "copy_contains": "실명 확인이 완료되었습니다",
+        "no_journal": true,
+        "blast_radius": "low"
+      }
+    },
+    {
+      "do": "shop.enroll",
+      "args": {
+        "product_id": "prod_deposit_hanbit",
+        "checked_documents": ["id_card", "resident_copy", "purpose_form"]
+      },
+      "expect": {
+        "ok": true,
+        "decision": "ALLOW",
+        "rule_id": "ENROLL_COMPLETE",
+        "copy_contains": "완료",
+        "journal_status": "POSTED",
+        "no_journal": true,
+        "blast_radius": "low"
+      }
+    },
+    {
+      "do": "shop.enroll",
+      "args": {
+        "product_id": "prod_deposit_hanbit",
+        "checked_documents": ["id_card", "resident_copy", "purpose_form"]
+      },
+      "expect": {
+        "ok": true,
+        "decision": "ALLOW",
+        "rule_id": "ENROLL_COMPLETE",
+        "copy_contains": "완료",
+        "journal_status": "POSTED",
+        "no_journal": true,
+        "same_audit_id": true
+      }
+    }
+  ],
+  "expect_balances": {
+    "acc_alice_chk": { "available": 10000000, "pending_out": 0 },
+    "acc_alice_mmf": { "available": 100000, "pending_out": 0 }
+  }
+}

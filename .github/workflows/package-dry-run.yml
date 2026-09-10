@@ -1,0 +1,49 @@
+name: package-dry-run
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pack:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.3
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Select the release candidate package
+        id: package
+        shell: bash
+        run: |
+          if [[ -f packages/protocol/package.json ]]; then
+            echo "filter=@execution-closure/protocol" >> "$GITHUB_OUTPUT"
+          else
+            echo "filter=@sapiensq/core" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Build package tarball
+        run: |
+          mkdir -p package-artifacts
+          pnpm --filter "${{ steps.package.outputs.filter }}" pack \
+            --pack-destination "$GITHUB_WORKSPACE/package-artifacts"
+      - name: Verify publish payload without publishing
+        shell: bash
+        run: |
+          shopt -s nullglob
+          tarballs=(package-artifacts/*.tgz)
+          test "${#tarballs[@]}" -eq 1
+          npm publish --dry-run --ignore-scripts --access restricted "${tarballs[0]}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: npm-package-dry-run
+          path: package-artifacts/*.tgz
+          if-no-files-found: error
