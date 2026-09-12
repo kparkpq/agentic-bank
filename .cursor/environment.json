@@ -1,0 +1,15 @@
+{
+  "name": "SapiensQ Agentic Bank sandbox",
+  "install": "corepack enable && corepack prepare pnpm@10.33.3 --activate && pnpm install --frozen-lockfile && pnpm seed",
+  "terminals": [
+    {
+      "name": "dev",
+      "command": "pnpm dev",
+      "description": "Runs the Hono API on http://localhost:3001 and the Vite web UI on http://localhost:5173 in parallel (make dev). The API also serves /trust-demo and mounts a local Ganache EVM chain for the Trust Layer."
+    }
+  ],
+  "ports": [
+    { "name": "api", "port": 3001 },
+    { "name": "web", "port": 5173 }
+  ]
+}
