@@ -6,6 +6,13 @@ import { fileURLToPath } from "node:url";
 import { Bank } from "@sapiensq/core";
 import { describe, expect, it } from "vitest";
 import { createClosureApp } from "./app.js";
+import {
+  defaultClosureExecutor,
+  ExecutionTimeoutError,
+  executeSyntheticTransfer,
+  lookupSyntheticTransfer,
+  type ClosureExecutor,
+} from "./executor.js";
 import { ExecutionClosureService } from "./service.js";
 
 const PROTOCOL_VERIFY = join(
@@ -20,10 +27,10 @@ const MANDATE_BODY = {
   max_amount: "500000",
 };
 
-function runtime(clock?: () => Date) {
+function runtime(clock?: () => Date, executor?: ClosureExecutor) {
   const bank = new Bank(":memory:");
   bank.seed();
-  const service = new ExecutionClosureService(bank, clock);
+  const service = new ExecutionClosureService(bank, clock ?? (() => new Date()), executor ?? defaultClosureExecutor);
   return { bank, service, app: createClosureApp(service) };
 }
 
@@ -326,5 +333,121 @@ describe("closure-api Stage 2 controls", () => {
     expect(bank.account("acc_alice_chk")?.available).toBe(10_000_000);
     const verified = await requestJson(app, `/v1/proofs/${expired.body.proof_id}/verify`, { method: "POST" });
     expect(verified.body).toMatchObject({ valid: true, code: "VALID", closure_kind: "negative" });
+  });
+});
+
+describe("closure-api Stage 3 recovery", () => {
+  it("treats a pre-effect timeout as EXECUTION_UNKNOWN and does not move money", async () => {
+    const executor: ClosureExecutor = {
+      execute: () => {
+        throw new ExecutionTimeoutError();
+      },
+      lookup: lookupSyntheticTransfer,
+    };
+    const { bank, app } = runtime(undefined, executor);
+    const mandate = await registerMandate(app, "mandate-unknown");
+    const authorize = await requestJson(app, `/v1/mandates/${mandate.body.mandate_id}/authorizations`, {
+      method: "POST",
+      idempotencyKey: "auth-unknown",
+      body: { amount: "300000" },
+    });
+    const commit = await requestJson(app, `/v1/authorizations/${authorize.body.decision_id}/commit`, {
+      method: "POST",
+      idempotencyKey: "commit-unknown",
+    });
+    expect(commit.status).toBe(202);
+    expect(commit.body.state).toBe("EXECUTION_UNKNOWN");
+    expect(bank.account("acc_alice_chk")?.available).toBe(10_000_000);
+
+    const status = await requestJson(app, `/v1/authorizations/${authorize.body.decision_id}`);
+    expect(status.body.state).toBe("EXECUTION_UNKNOWN");
+
+    const reconcile = await requestJson(app, `/v1/authorizations/${authorize.body.decision_id}/reconcile`, {
+      method: "POST",
+    });
+    expect(reconcile.status).toBe(202);
+    expect(bank.account("acc_alice_chk")?.available).toBe(10_000_000);
+
+    const unresolved = await requestJson(app, "/v1/unresolved");
+    expect((unresolved.body.jobs as unknown[]).length).toBeGreaterThan(0);
+  });
+
+  it("looks up the original receipt after a post-effect timeout and does not double-post", async () => {
+    const executor: ClosureExecutor = {
+      execute: (bank, input) => {
+        const posted = executeSyntheticTransfer(bank, input);
+        throw new ExecutionTimeoutError();
+        return posted;
+      },
+      lookup: lookupSyntheticTransfer,
+    };
+    const { bank, app } = runtime(undefined, executor);
+    const mandate = await registerMandate(app, "mandate-after-effect");
+    const authorize = await requestJson(app, `/v1/mandates/${mandate.body.mandate_id}/authorizations`, {
+      method: "POST",
+      idempotencyKey: "auth-after-effect",
+      body: { amount: "300000" },
+    });
+    const commit = await requestJson(app, `/v1/authorizations/${authorize.body.decision_id}/commit`, {
+      method: "POST",
+      idempotencyKey: "commit-after-effect",
+    });
+    expect(commit.status).toBe(202);
+    expect(bank.account("acc_alice_chk")?.available).toBe(9_700_000);
+
+    const reconcile = await requestJson(app, `/v1/authorizations/${authorize.body.decision_id}/reconcile`, {
+      method: "POST",
+    });
+    expect(reconcile.status).toBe(201);
+    expect(bank.account("acc_alice_chk")?.available).toBe(9_700_000);
+    expect((reconcile.body.proof as { body: { state_path: string[] } }).body.state_path).toEqual([
+      "PROPOSED",
+      "AUTHORIZED",
+      "EXECUTION_INTENT_RECORDED",
+      "EXECUTED",
+      "CLOSED",
+    ]);
+    const verified = await requestJson(app, `/v1/proofs/${reconcile.body.proof_id}/verify`, { method: "POST" });
+    expect(verified.body).toMatchObject({ valid: true, code: "VALID", closure_kind: "success" });
+  });
+
+  it("fails closed on clock rollback and keeps an unresolved queue after budget exhaustion", async () => {
+    let now = new Date("2026-06-01T00:00:00.000Z");
+    const { app, service } = runtime(() => now);
+    const mandate = await registerMandate(app, "mandate-clock");
+    now = new Date("2026-05-31T23:00:00.000Z");
+    const authorize = await requestJson(app, `/v1/mandates/${mandate.body.mandate_id}/authorizations`, {
+      method: "POST",
+      idempotencyKey: "auth-clock",
+      body: { amount: "300000" },
+    });
+    expect(authorize.status).toBe(422);
+    expect((authorize.body.error as { code: string }).code).toBe("CLOCK_ROLLBACK");
+
+    now = new Date("2026-06-01T00:01:00.000Z");
+    const timeoutExecutor: ClosureExecutor = {
+      execute: () => {
+        throw new ExecutionTimeoutError();
+      },
+      lookup: () => undefined,
+    };
+    const timed = runtime(() => now, timeoutExecutor);
+    const mandate2 = await registerMandate(timed.app, "mandate-budget");
+    const allowed = await requestJson(timed.app, `/v1/mandates/${mandate2.body.mandate_id}/authorizations`, {
+      method: "POST",
+      idempotencyKey: "auth-budget",
+      body: { amount: "300000" },
+    });
+    await requestJson(timed.app, `/v1/authorizations/${allowed.body.decision_id}/commit`, {
+      method: "POST",
+      idempotencyKey: "commit-budget",
+    });
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      now = new Date(now.getTime() + 120_000);
+      timed.service.runReconciliationWorker();
+    }
+    const queue = await requestJson(timed.app, "/v1/unresolved");
+    expect((queue.body.jobs as Array<{ state: string }>).some((job) => job.state === "unresolved")).toBe(true);
+    expect(service.trustStore().installed_at).toBeTruthy();
   });
 });

@@ -1,3 +1,7 @@
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { canonicalizeJson, compareUtf8, concatenateBytes, utf8Bytes } from "./canonical.js";
 
@@ -27,5 +31,14 @@ describe("canonical JSON", () => {
     expect(Array.from(concatenateBytes(utf8Bytes("ec"), utf8Bytes("-v0")))).toEqual(
       Array.from(utf8Bytes("ec-v0")),
     );
+  });
+
+  it("matches the committed Python interop vector", () => {
+    const vector = JSON.parse(
+      readFileSync(join(dirname(fileURLToPath(import.meta.url)), "../fixtures/interop-vector.json"), "utf8"),
+    ) as { object: unknown; expected_canonical: string; expected_sha256_hex: string };
+    const canonical = canonicalizeJson(vector.object);
+    expect(canonical).toBe(vector.expected_canonical);
+    expect(createHash("sha256").update(canonical).digest("hex")).toBe(vector.expected_sha256_hex);
   });
 });

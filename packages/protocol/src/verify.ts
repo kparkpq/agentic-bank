@@ -12,6 +12,7 @@ import {
   isKrwTransferDescriptorCompatible,
   isMandateValidAtAuthorization,
 } from "./evaluator.js";
+import { proofExceedsLimits } from "./limits.js";
 import { isNegativeClosedPath, isSuccessfulStatePath, isSuccessfulStepUpStatePath } from "./state.js";
 import {
   ASSURANCE_PROFILE,
@@ -21,6 +22,7 @@ import {
   type ClosureFailureCode,
   type ClosureProof,
   type ClosureVerificationResult,
+  type KeyIncident,
   type NegativeClosureProof,
   type SignedEnvelope,
   type TrustRootManifest,
@@ -128,7 +130,10 @@ function verifyEnvelope(
   for (const role of roles) {
     const signature = envelope.signatures.find((item) => item.role === role);
     const binding = bindingByRole(authorities, role);
-    if (!signature || !binding) {
+    if (!binding) {
+      return failure("UNKNOWN_KEY", `${path}/signatures`, `missing ${role} binding`);
+    }
+    if (!signature) {
       return failure("AUTHORITY_BINDING_INVALID", `${path}/signatures`, `missing ${role} signature or binding`);
     }
     if (signature.issuer !== binding.issuer || signature.key_id !== binding.key_id) {
@@ -179,8 +184,11 @@ function verifyTrustAndPins(
     trustStore.trust_epoch !== manifest.trust_epoch ||
     trustStore.manifest_hash !== hashSignedObjectBody(manifest)
   ) {
-    return failure("MANIFEST_PIN_MISMATCH", "/trust_store", "trust store pin does not match the proof manifest");
+    return failure("STALE_TRUST_HEAD", "/trust_store", "trust store pin does not match the proof manifest");
   }
+
+  const revoked = findRevokedKey(trustStore.key_incidents ?? [], body);
+  if (revoked) return revoked;
 
   const manifestSignature = verifyEnvelope(body.manifest, ["trust_root"], authorities, "/body/manifest");
   if (manifestSignature) {
@@ -606,6 +614,26 @@ function verifyNegativeProofSemantics(
   return undefined;
 }
 
+function findRevokedKey(
+  incidents: readonly KeyIncident[],
+  body: ClosureProof["body"] | NegativeClosureProof["body"],
+): ClosureVerificationResult | undefined {
+  const objects: Array<{ path: string; issued_at: string; issuer: string; key_id: string }> = [
+    { path: "/body", issued_at: body.issued_at, issuer: body.issuer, key_id: body.key_id },
+    { path: "/body/decision/body", issued_at: body.decision.body.issued_at, issuer: body.decision.body.issuer, key_id: body.decision.body.key_id },
+  ];
+  for (const object of objects) {
+    for (const incident of incidents) {
+      if (incident.key_id !== object.key_id || incident.issuer !== object.issuer) continue;
+      const cutoff = incident.kind === "compromise" ? incident.invalid_from : incident.revoked_at;
+      if (cutoff && Date.parse(object.issued_at) >= Date.parse(cutoff)) {
+        return failure("KEY_REVOKED", object.path, "signing key is revoked or compromised at the object issued_at");
+      }
+    }
+  }
+  return undefined;
+}
+
 function proofObjectType(input: unknown): string | undefined {
   if (!input || typeof input !== "object" || !("body" in input)) return undefined;
   const body = (input as { body?: { object_type?: unknown } }).body;
@@ -614,6 +642,10 @@ function proofObjectType(input: unknown): string | undefined {
 
 export function verifyClosureProof(proofInput: unknown, trustStoreInput: unknown): ClosureVerificationResult {
   try {
+    const limit = proofExceedsLimits(proofInput, trustStoreInput);
+    if (limit) {
+      return failure("PROOF_LIMIT_EXCEEDED", "/", limit);
+    }
     const trustStore = validateObject("TrustStore", trustStoreInput);
     if (!trustStore.valid) {
       return failure(

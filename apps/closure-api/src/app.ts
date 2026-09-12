@@ -80,6 +80,14 @@ export function createClosureApp(service: ExecutionClosureService): Hono {
     return reply(c, service.commit(c.req.param("decisionId"), idempotencyKey(c.req.header("Idempotency-Key"))));
   });
 
+  app.post("/v1/authorizations/:decisionId/reconcile", async (c) => {
+    return reply(c, service.reconcile(c.req.param("decisionId"), idempotencyKey(c.req.header("Idempotency-Key"))));
+  });
+
+  app.get("/v1/authorizations/:decisionId", (c) => reply(c, service.authorizationStatus(c.req.param("decisionId"))));
+
+  app.get("/v1/unresolved", (c) => reply(c, service.unresolvedQueue()));
+
   app.get("/v1/proofs/:proofId", (c) => reply(c, service.loadProof(c.req.param("proofId"))));
 
   app.post("/v1/proofs/:proofId/verify", (c) => reply(c, service.verifyStoredProof(c.req.param("proofId"))));

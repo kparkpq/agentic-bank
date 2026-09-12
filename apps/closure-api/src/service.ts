@@ -34,20 +34,32 @@ import {
 } from "@execution-closure/protocol";
 import { Bank, withTx } from "@sapiensq/core";
 import { createClosureRuntimeKeys, signatureInput, type ClosureRuntimeKeys } from "./authorities.js";
-import { executeSyntheticTransfer } from "./executor.js";
 import {
+  defaultClosureExecutor,
+  ExecutionTimeoutError,
+  type ClosureExecutor,
+  type ExecutedTransfer,
+} from "./executor.js";
+import {
+  backoffJob,
+  claimDueJobs,
+  completeJob,
   consumeCapsule,
   countActionMutations,
+  enqueueReconciliationJob,
   ensureClosureSchema,
   getAuthorization,
   getIdempotency,
+  getJobByDecision,
   getMandate,
   getProof,
   getProofByDecision,
   isMandateRevoked,
   listAuthorizationsByMandate,
+  listUnresolvedJobs,
   markAuthorizationClosed,
   nextLedgerSequence,
+  observeClock,
   revokeMandate as persistMandateRevocation,
   saveAuthorization,
   saveIdempotency,
@@ -58,7 +70,7 @@ import {
 import { extractLiveAccountSnapshot } from "./snapshot.js";
 
 export type ServiceError = {
-  status: 400 | 404 | 409 | 422;
+  status: 400 | 404 | 409 | 422 | 503;
   code: string;
   message: string;
 };
@@ -93,6 +105,10 @@ const AGENT_ID = "synthetic-agent-1";
 const ALLOWED_CUSTOMERS = new Set(["syn_alice"]);
 const ALLOWED_APPROVERS = new Set(["syn_operator"]);
 const OPEN_STATES = new Set(["AUTHORIZED", "STEP_UP_REQUIRED", "APPROVED"]);
+const INTENDED_STATES = new Set(["EXECUTION_INTENT_RECORDED", "EXECUTION_UNKNOWN"]);
+const WORKER_ID = "closure-worker-1";
+const LEASE_MS = 2_000;
+const MAX_ATTEMPTS = 5;
 
 function nowIso(now: Date): string {
   return now.toISOString();
@@ -146,13 +162,25 @@ function asRecord(value: unknown): AuthorizationRecord {
 
 export class ExecutionClosureService {
   readonly keys: ClosureRuntimeKeys;
+  readonly executor: ClosureExecutor;
 
   constructor(
     readonly bank: Bank,
     readonly clock: () => Date = () => new Date(),
+    executor: ClosureExecutor = defaultClosureExecutor,
   ) {
     ensureClosureSchema(bank.db);
+    this.executor = executor;
     this.keys = createClosureRuntimeKeys(nowIso(this.clock()));
+  }
+
+  private observedNow(): ServiceResult<Date> {
+    const now = this.clock();
+    const observed = observeClock(this.bank.db, now.getTime());
+    if (!observed.ok) {
+      return fail(422, "CLOCK_ROLLBACK", "system clock moved behind the persisted last observed time");
+    }
+    return { ok: true, status: 200, replay: false, value: new Date(observed.observed_ms) };
   }
 
   trustStore(): TrustStore {
@@ -198,7 +226,9 @@ export class ExecutionClosureService {
       return fail(400, "UNKNOWN_ACCOUNT", "mandate accounts must exist and belong to the customer");
     }
 
-    const now = this.clock();
+    const observed = this.observedNow();
+    if (!observed.ok) return observed;
+    const now = observed.value;
     const issuedAt = nowIso(now);
     const mandateAuthority = this.keys.authorities.mandate_authority;
     const mandateBody: Mandate = {
@@ -249,7 +279,9 @@ export class ExecutionClosureService {
     }
 
     const amount = typeof input.amount === "string" ? input.amount : "";
-    const now = this.clock();
+    const observed = this.observedNow();
+    if (!observed.ok) return observed;
+    const now = observed.value;
     const issuedAt = nowIso(now);
     const actionAuthority = this.keys.authorities.action_proposer;
     const actionBody: ProposedAction = {
@@ -540,7 +572,7 @@ export class ExecutionClosureService {
     const now = this.clock();
     const revokedAt = nowIso(now);
     const open = listAuthorizationsByMandate(this.bank.db, mandateId);
-    if (open.some((row) => row.state === "EXECUTION_INTENT_RECORDED")) {
+    if (open.some((row) => INTENDED_STATES.has(row.state))) {
       return fail(409, "ALREADY_INTENDED", "mandate cannot be revoked after execution intent is recorded");
     }
 
@@ -570,7 +602,7 @@ export class ExecutionClosureService {
   commit(
     decisionId: string,
     idempotencyKey: string | undefined,
-  ): ServiceResult<{ proof_id: string; proof: AnyStoredProof }> {
+  ): ServiceResult<{ proof_id: string; proof: AnyStoredProof } | { decision_id: string; state: "EXECUTION_UNKNOWN"; job_id: string }> {
     const key = readIdempotencyKey(idempotencyKey);
     if (!key) return fail(400, "IDEMPOTENCY_REQUIRED", "Idempotency-Key is required");
     const request = { decision_id: decisionId };
@@ -591,6 +623,9 @@ export class ExecutionClosureService {
 
     const authorization = getAuthorization(this.bank.db, decisionId);
     if (!authorization) return fail(404, "AUTHORIZATION_NOT_FOUND", "authorization was not found");
+    if (INTENDED_STATES.has(authorization.state)) {
+      return this.reconcile(decisionId, key);
+    }
     const record = asRecord(authorization.record);
     if (authorization.state !== "AUTHORIZED" && authorization.state !== "APPROVED") {
       return fail(422, "DECISION_NOT_ALLOWED", "only ALLOW or approved step-up decisions can be committed");
@@ -602,7 +637,9 @@ export class ExecutionClosureService {
       return fail(422, "MANDATE_REVOKED", "mandate has been revoked");
     }
 
-    const now = this.clock();
+    const observed = this.observedNow();
+    if (!observed.ok) return observed;
+    const now = observed.value;
     const executedAt = nowIso(now);
     if (
       Date.parse(executedAt) >= Date.parse(record.capsule.body.expires_at) ||
@@ -640,31 +677,68 @@ export class ExecutionClosureService {
     }
 
     const amount = Number(record.action.body.transfer.amount);
+    const jobId = `job-${randomUUID()}`;
+    const idempotencyKeyForLedger = `closure:${record.capsule.body.capsule_id}`;
     try {
-      const proof = withTx(this.bank.db, () => {
+      withTx(this.bank.db, () => {
         if (!consumeCapsule(this.bank.db, record.capsule!.body.capsule_id, executedAt)) {
           throw new Error("CAPSULE_REUSED");
         }
-        const posted = executeSyntheticTransfer(this.bank, {
-          customer_id: record.action.body.customer_id,
-          from_account_id: record.action.body.transfer.from_account_id,
-          to_account_id: record.action.body.transfer.to_account_id,
-          amount,
-          idempotency_key: `closure:${record.capsule!.body.capsule_id}`,
+        const intended: AuthorizationRecord = {
+          ...record,
+          state_path: [...record.state_path, "EXECUTION_INTENT_RECORDED"],
+        };
+        if (
+          !updateAuthorization(this.bank.db, decisionId, authorization.state, authorization.state_version, {
+            state: "EXECUTION_INTENT_RECORDED",
+            capsuleId: record.capsule!.body.capsule_id,
+            record: intended,
+          })
+        ) {
+          throw new Error("STATE_CONFLICT");
+        }
+        enqueueReconciliationJob(this.bank.db, {
+          job_id: jobId,
+          decision_id: decisionId,
+          now_ms: now.getTime(),
+          max_attempts: MAX_ATTEMPTS,
         });
-        const closed = this.closeSuccess(record, posted.ledger_sequence, executedAt);
-        const value = { proof_id: closed.body.proof_id, proof: closed };
-        saveProof(this.bank.db, closed.body.proof_id, decisionId, closed);
-        markAuthorizationClosed(this.bank.db, decisionId);
-        saveIdempotency(this.bank.db, "commits", key, hash, 201, value);
-        return closed;
       });
-      return { ok: true, status: 201, replay: false, value: { proof_id: proof.body.proof_id, proof } };
     } catch (error) {
-      const message = error instanceof Error ? error.message : "synthetic commit failed";
+      const message = error instanceof Error ? error.message : "intent record failed";
       if (message === "CAPSULE_REUSED") {
         return fail(409, "CAPSULE_REUSED", "execution capsule was already consumed");
       }
+      return fail(409, "STATE_CONFLICT", "authorization changed before execution intent was recorded");
+    }
+
+    try {
+      const posted = this.executor.execute(this.bank, {
+        customer_id: record.action.body.customer_id,
+        from_account_id: record.action.body.transfer.from_account_id,
+        to_account_id: record.action.body.transfer.to_account_id,
+        amount,
+        idempotency_key: idempotencyKeyForLedger,
+      });
+      return this.finishPostedCommit(decisionId, record, posted, executedAt, key, hash);
+    } catch (error) {
+      if (error instanceof ExecutionTimeoutError) {
+        const latest = getAuthorization(this.bank.db, decisionId);
+        if (latest) {
+          updateAuthorization(this.bank.db, decisionId, latest.state, latest.state_version, {
+            state: "EXECUTION_UNKNOWN",
+            capsuleId: record.capsule.body.capsule_id,
+            record: { ...asRecord(latest.record), state_path: [...asRecord(latest.record).state_path, "EXECUTION_UNKNOWN"] },
+          });
+        }
+        return {
+          ok: true,
+          status: 202,
+          replay: false,
+          value: { decision_id: decisionId, state: "EXECUTION_UNKNOWN", job_id: jobId },
+        };
+      }
+      const message = error instanceof Error ? error.message : "synthetic commit failed";
       const proof = this.closeNegative(
         record,
         "EXECUTION_FAILED",
@@ -676,11 +750,124 @@ export class ExecutionClosureService {
         if (!getProofByDecision(this.bank.db, decisionId)) {
           saveProof(this.bank.db, proof.body.proof_id, decisionId, proof);
           markAuthorizationClosed(this.bank.db, decisionId);
+          const job = getJobByDecision(this.bank.db, decisionId);
+          if (job) completeJob(this.bank.db, job.job_id);
         }
         saveIdempotency(this.bank.db, "commits", key, hash, 422, value);
       });
       return { ok: true, status: 422, replay: false, value };
     }
+  }
+
+  reconcile(
+    decisionId: string,
+    idempotencyKey?: string | undefined,
+  ): ServiceResult<{ proof_id: string; proof: AnyStoredProof } | { decision_id: string; state: "EXECUTION_UNKNOWN"; job_id: string }> {
+    const observed = this.observedNow();
+    if (!observed.ok) return observed;
+    const now = observed.value;
+    const existingProof = getProofByDecision(this.bank.db, decisionId);
+    if (existingProof) {
+      const proof = existingProof as AnyStoredProof;
+      return { ok: true, status: 200, replay: false, value: { proof_id: proof.body.proof_id, proof } };
+    }
+    const authorization = getAuthorization(this.bank.db, decisionId);
+    if (!authorization) return fail(404, "AUTHORIZATION_NOT_FOUND", "authorization was not found");
+    if (!INTENDED_STATES.has(authorization.state)) {
+      return fail(422, "NOT_RECONCILABLE", "authorization is not waiting for execution lookup");
+    }
+    const record = asRecord(authorization.record);
+    if (!record.capsule) return fail(422, "DECISION_NOT_ALLOWED", "authorization is missing an executable capsule");
+    const job = getJobByDecision(this.bank.db, decisionId);
+    const posted = this.executor.lookup(this.bank, `closure:${record.capsule.body.capsule_id}`);
+    if (posted) {
+      const result = this.finishPostedCommit(decisionId, record, posted, nowIso(now));
+      if (job) completeJob(this.bank.db, job.job_id);
+      return result;
+    }
+    if (job) {
+      const next = backoffJob(this.bank.db, job.job_id, now.getTime(), "EXECUTION_UNKNOWN");
+      if (next?.state === "unresolved") {
+        return {
+          ok: true,
+          status: 202,
+          replay: false,
+          value: { decision_id: decisionId, state: "EXECUTION_UNKNOWN", job_id: job.job_id },
+        };
+      }
+    }
+    return {
+      ok: true,
+      status: 202,
+      replay: false,
+      value: { decision_id: decisionId, state: "EXECUTION_UNKNOWN", job_id: job?.job_id ?? `job-${decisionId}` },
+    };
+  }
+
+  authorizationStatus(decisionId: string): ServiceResult<{
+    decision_id: string;
+    state: string;
+    proof_id: string | null;
+    job: ReturnType<typeof getJobByDecision>;
+  }> {
+    const authorization = getAuthorization(this.bank.db, decisionId);
+    if (!authorization) return fail(404, "AUTHORIZATION_NOT_FOUND", "authorization was not found");
+    const proof = getProofByDecision(this.bank.db, decisionId) as AnyStoredProof | undefined;
+    return {
+      ok: true,
+      status: 200,
+      replay: false,
+      value: {
+        decision_id: decisionId,
+        state: authorization.state,
+        proof_id: proof?.body.proof_id ?? null,
+        job: getJobByDecision(this.bank.db, decisionId),
+      },
+    };
+  }
+
+  unresolvedQueue(): ServiceResult<{ jobs: ReturnType<typeof listUnresolvedJobs> }> {
+    return { ok: true, status: 200, replay: false, value: { jobs: listUnresolvedJobs(this.bank.db) } };
+  }
+
+  runReconciliationWorker(limit = 4): { claimed: number; closed: number; unknown: number } {
+    const observed = this.observedNow();
+    if (!observed.ok) return { claimed: 0, closed: 0, unknown: 0 };
+    const claimed = claimDueJobs(this.bank.db, WORKER_ID, observed.value.getTime(), LEASE_MS, limit);
+    let closed = 0;
+    let unknown = 0;
+    for (const job of claimed) {
+      const result = this.reconcile(job.decision_id);
+      if (result.ok && result.status === 201) closed += 1;
+      else if (result.ok && result.status === 202) unknown += 1;
+      else if (result.ok && "proof_id" in result.value) closed += 1;
+      else unknown += 1;
+    }
+    return { claimed: claimed.length, closed, unknown };
+  }
+
+  private finishPostedCommit(
+    decisionId: string,
+    record: AuthorizationRecord,
+    posted: ExecutedTransfer,
+    executedAt: string,
+    idempotencyKey?: string,
+    requestHashValue?: string,
+  ): ServiceResult<{ proof_id: string; proof: AnyStoredProof }> {
+    const closed = this.closeSuccess(record, posted.ledger_sequence, executedAt);
+    const value = { proof_id: closed.body.proof_id, proof: closed };
+    withTx(this.bank.db, () => {
+      if (!getProofByDecision(this.bank.db, decisionId)) {
+        saveProof(this.bank.db, closed.body.proof_id, decisionId, closed);
+        markAuthorizationClosed(this.bank.db, decisionId);
+        const job = getJobByDecision(this.bank.db, decisionId);
+        if (job) completeJob(this.bank.db, job.job_id);
+      }
+      if (idempotencyKey && requestHashValue) {
+        saveIdempotency(this.bank.db, "commits", idempotencyKey, requestHashValue, 201, value);
+      }
+    });
+    return { ok: true, status: 201, replay: false, value };
   }
 
   loadProof(proofId: string): ServiceResult<{ proof_id: string; proof: AnyStoredProof }> {

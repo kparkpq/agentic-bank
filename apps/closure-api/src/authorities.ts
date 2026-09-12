@@ -152,6 +152,8 @@ export function createClosureRuntimeKeys(issuedAt: string): ClosureRuntimeKeys {
       manifest_hash: manifestHash,
       trust_epoch: "1",
       trusted_roots: [{ ...root.binding, role: "trust_root" }],
+      installed_at: issuedAt,
+      key_incidents: [],
     },
   };
 }

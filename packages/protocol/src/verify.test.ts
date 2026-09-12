@@ -150,4 +150,28 @@ describe("closure proof verifier", () => {
     const closed = createSignedEnvelope(tainted.body, [signingInputFor(fixture, "closure_authority")]);
     expect(verifyClosureProof(closed, fixture.trust_store).code).toBe("SIDE_EFFECT_PRESENT");
   });
+
+  it("rejects a stale trust head and a compromised key after invalid_from", () => {
+    const fixture = createSyntheticClosureFixture();
+    const stale = clone(fixture.trust_store);
+    stale.manifest_hash = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+    expect(verifyClosureProof(fixture.proof, stale).code).toBe("STALE_TRUST_HEAD");
+
+    const compromised = clone(fixture.trust_store);
+    compromised.key_incidents = [
+      {
+        key_id: fixture.proof.body.key_id,
+        issuer: fixture.proof.body.issuer,
+        kind: "compromise",
+        invalid_from: "2026-01-01T00:00:00.000Z",
+      },
+    ];
+    expect(verifyClosureProof(fixture.proof, compromised).code).toBe("KEY_REVOKED");
+  });
+
+  it("rejects proofs that exceed the versioned resource limits", () => {
+    const fixture = createSyntheticClosureFixture();
+    const huge = { ...fixture.proof, padding: "x".repeat(1_048_577) };
+    expect(verifyClosureProof(huge, fixture.trust_store).code).toBe("PROOF_LIMIT_EXCEEDED");
+  });
 });

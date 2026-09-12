@@ -17,6 +17,8 @@
   },
   "files": [
     "bin",
+    "fixtures",
+    "release-manifest.json",
     "schemas",
     "src",
     "package.json"

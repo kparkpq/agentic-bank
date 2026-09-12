@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS closure_schema_version (
 
 INSERT OR IGNORE INTO closure_schema_version (version) VALUES (1);
 INSERT OR IGNORE INTO closure_schema_version (version) VALUES (2);
+INSERT OR IGNORE INTO closure_schema_version (version) VALUES (3);
 
 CREATE TABLE IF NOT EXISTS closure_idempotency (
   scope TEXT NOT NULL,
@@ -43,6 +44,23 @@ CREATE TABLE IF NOT EXISTS closure_proofs (
   proof_id TEXT PRIMARY KEY,
   decision_id TEXT NOT NULL UNIQUE,
   proof_json TEXT NOT NULL CHECK (json_valid(proof_json))
+);
+
+CREATE TABLE IF NOT EXISTS closure_clock (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  last_observed_ms TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS closure_jobs (
+  job_id TEXT PRIMARY KEY,
+  decision_id TEXT NOT NULL UNIQUE,
+  state TEXT NOT NULL,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  max_attempts INTEGER NOT NULL,
+  next_attempt_ms TEXT NOT NULL,
+  lease_owner TEXT,
+  lease_until_ms TEXT,
+  last_error TEXT
 );
 `;
 
@@ -105,8 +123,121 @@ function migrate(db: Db): void {
 }
 
 export function ensureClosureSchema(db: Db): void {
+  db.exec("PRAGMA busy_timeout = 5000");
   db.exec(SCHEMA);
   migrate(db);
+}
+
+export type ReconciliationJob = {
+  job_id: string;
+  decision_id: string;
+  state: string;
+  attempts: number;
+  max_attempts: number;
+  next_attempt_ms: string;
+  lease_owner: string | null;
+  lease_until_ms: string | null;
+  last_error: string | null;
+};
+
+export function observeClock(db: Db, systemMs: number): { ok: true; observed_ms: number } | { ok: false } {
+  const row = db.prepare("SELECT last_observed_ms FROM closure_clock WHERE id = 1").get() as
+    | { last_observed_ms: string }
+    | undefined;
+  const persisted = row ? Number(row.last_observed_ms) : undefined;
+  if (persisted !== undefined && Number.isFinite(persisted) && systemMs < persisted) {
+    return { ok: false };
+  }
+  const observed = persisted !== undefined && Number.isFinite(persisted) ? Math.max(systemMs, persisted) : systemMs;
+  db.prepare(
+    `INSERT INTO closure_clock (id, last_observed_ms) VALUES (1, ?)
+     ON CONFLICT(id) DO UPDATE SET last_observed_ms = excluded.last_observed_ms`,
+  ).run(String(observed));
+  return { ok: true, observed_ms: observed };
+}
+
+export function enqueueReconciliationJob(
+  db: Db,
+  job: { job_id: string; decision_id: string; now_ms: number; max_attempts?: number },
+): void {
+  db.prepare(
+    `INSERT OR IGNORE INTO closure_jobs
+      (job_id, decision_id, state, attempts, max_attempts, next_attempt_ms, lease_owner, lease_until_ms, last_error)
+     VALUES (?, ?, 'queued', 0, ?, ?, NULL, NULL, NULL)`,
+  ).run(job.job_id, job.decision_id, job.max_attempts ?? 5, String(job.now_ms));
+}
+
+export function listUnresolvedJobs(db: Db): ReconciliationJob[] {
+  const rows = db
+    .prepare(
+      `SELECT job_id, decision_id, state, attempts, max_attempts, next_attempt_ms, lease_owner, lease_until_ms, last_error
+       FROM closure_jobs WHERE state IN ('queued', 'leased', 'unresolved')`,
+    )
+    .all() as ReconciliationJob[];
+  return rows;
+}
+
+export function claimDueJobs(db: Db, owner: string, nowMs: number, leaseMs: number, limit: number): ReconciliationJob[] {
+  const due = db
+    .prepare(
+      `SELECT job_id, decision_id, state, attempts, max_attempts, next_attempt_ms, lease_owner, lease_until_ms, last_error
+       FROM closure_jobs
+       WHERE state IN ('queued', 'leased')
+         AND CAST(next_attempt_ms AS INTEGER) <= ?
+         AND (lease_until_ms IS NULL OR CAST(lease_until_ms AS INTEGER) <= ?)
+       ORDER BY CAST(next_attempt_ms AS INTEGER) ASC
+       LIMIT ?`,
+    )
+    .all(String(nowMs), String(nowMs), limit) as ReconciliationJob[];
+  const claimed: ReconciliationJob[] = [];
+  for (const job of due) {
+    const result = db
+      .prepare(
+        `UPDATE closure_jobs
+         SET state = 'leased', lease_owner = ?, lease_until_ms = ?
+         WHERE job_id = ? AND (lease_until_ms IS NULL OR CAST(lease_until_ms AS INTEGER) <= ?)`,
+      )
+      .run(owner, String(nowMs + leaseMs), job.job_id, String(nowMs));
+    if (Number(result.changes) === 1) {
+      claimed.push({ ...job, state: "leased", lease_owner: owner, lease_until_ms: String(nowMs + leaseMs) });
+    }
+  }
+  return claimed;
+}
+
+export function completeJob(db: Db, jobId: string): void {
+  db.prepare("UPDATE closure_jobs SET state = 'done', lease_owner = NULL, lease_until_ms = NULL WHERE job_id = ?").run(
+    jobId,
+  );
+}
+
+export function backoffJob(db: Db, jobId: string, nowMs: number, error: string): ReconciliationJob | undefined {
+  const row = db
+    .prepare(
+      `SELECT job_id, decision_id, state, attempts, max_attempts, next_attempt_ms, lease_owner, lease_until_ms, last_error
+       FROM closure_jobs WHERE job_id = ?`,
+    )
+    .get(jobId) as ReconciliationJob | undefined;
+  if (!row) return undefined;
+  const attempts = row.attempts + 1;
+  const exhausted = attempts >= row.max_attempts;
+  const delay = Math.min(60_000, 250 * 2 ** Math.min(attempts, 8));
+  const next = nowMs + delay;
+  db.prepare(
+    `UPDATE closure_jobs
+     SET state = ?, attempts = ?, next_attempt_ms = ?, lease_owner = NULL, lease_until_ms = NULL, last_error = ?
+     WHERE job_id = ?`,
+  ).run(exhausted ? "unresolved" : "queued", attempts, String(next), error, jobId);
+  return { ...row, attempts, state: exhausted ? "unresolved" : "queued", next_attempt_ms: String(next), last_error: error };
+}
+
+export function getJobByDecision(db: Db, decisionId: string): ReconciliationJob | undefined {
+  return db
+    .prepare(
+      `SELECT job_id, decision_id, state, attempts, max_attempts, next_attempt_ms, lease_owner, lease_until_ms, last_error
+       FROM closure_jobs WHERE decision_id = ?`,
+    )
+    .get(decisionId) as ReconciliationJob | undefined;
 }
 
 export function getIdempotency(db: Db, scope: string, key: string): IdempotencyRow | undefined {

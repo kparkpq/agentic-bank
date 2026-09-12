@@ -110,6 +110,16 @@ export interface TrustedRoot {
   public_key: string;
 }
 
+export type KeyIncidentKind = "rotation" | "compromise";
+
+export interface KeyIncident {
+  key_id: string;
+  issuer: string;
+  kind: KeyIncidentKind;
+  revoked_at?: Timestamp;
+  invalid_from?: Timestamp;
+}
+
 export interface TrustStore {
   object_type: "TrustStore";
   protocol_version: ProtocolVersion;
@@ -119,6 +129,8 @@ export interface TrustStore {
   manifest_hash: HashString;
   trust_epoch: string;
   trusted_roots: TrustedRoot[];
+  installed_at?: Timestamp;
+  key_incidents?: KeyIncident[];
 }
 
 export interface ManifestPinnedObject<T extends SignedObjectType> {
@@ -294,6 +306,7 @@ export type ProtocolState =
   | "EXECUTION_INTENT_RECORDED"
   | "EXECUTED"
   | "EXECUTION_FAILED"
+  | "EXECUTION_UNKNOWN"
   | "CANCELLED"
   | "EXPIRED"
   | "REVOKED"
@@ -408,6 +421,10 @@ export type ClosureFailureCode =
   | "STEP_UP_MISSING"
   | "MANDATE_REVOKED"
   | "SIDE_EFFECT_PRESENT"
+  | "STALE_TRUST_HEAD"
+  | "KEY_REVOKED"
+  | "UNKNOWN_KEY"
+  | "PROOF_LIMIT_EXCEEDED"
   | "INTERNAL_VERIFICATION_ERROR";
 
 export type ClosureKind = "success" | "negative";

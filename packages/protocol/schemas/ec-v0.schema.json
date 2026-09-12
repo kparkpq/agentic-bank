@@ -183,7 +183,24 @@
           "type": "array",
           "minItems": 1,
           "items": { "$ref": "#/definitions/trustedRoot" }
+        },
+        "installed_at": { "$ref": "#/definitions/timestamp" },
+        "key_incidents": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/keyIncident" }
         }
+      }
+    },
+    "keyIncident": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key_id", "issuer", "kind"],
+      "properties": {
+        "key_id": { "$ref": "#/definitions/identifier" },
+        "issuer": { "$ref": "#/definitions/identifier" },
+        "kind": { "enum": ["rotation", "compromise"] },
+        "revoked_at": { "$ref": "#/definitions/timestamp" },
+        "invalid_from": { "$ref": "#/definitions/timestamp" }
       }
     },
     "mandate": {
@@ -717,6 +734,7 @@
         "EXECUTION_INTENT_RECORDED",
         "EXECUTED",
         "EXECUTION_FAILED",
+        "EXECUTION_UNKNOWN",
         "CANCELLED",
         "EXPIRED",
         "REVOKED",

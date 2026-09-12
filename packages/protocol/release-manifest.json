@@ -1,0 +1,14 @@
+{
+  "name": "@execution-closure/protocol",
+  "version": "0.1.0",
+  "protocol_version": "ec-v0",
+  "schema_version": "1",
+  "assurance_profile": "single_process_simulation",
+  "artifacts": {
+    "schema": "schemas/ec-v0.schema.json",
+    "cli": "bin/execution-closure-verify.mjs",
+    "fixtures": "fixtures/interop-vector.json",
+    "openapi": "../../docs/openapi/execution-closure-v0.yaml",
+    "quickstart": "../../docs/execution-closure-quickstart.md"
+  }
+}

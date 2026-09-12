@@ -74,6 +74,16 @@ describe("evaluator and state", () => {
       true,
     );
     expect(isLegalStatePath(["PROPOSED", "AUTHORIZED", "REVOKED", "CLOSED"])).toBe(true);
+    expect(
+      isLegalStatePath([
+        "PROPOSED",
+        "AUTHORIZED",
+        "EXECUTION_INTENT_RECORDED",
+        "EXECUTION_UNKNOWN",
+        "EXECUTED",
+        "CLOSED",
+      ]),
+    ).toBe(true);
     expect(isSuccessfulStatePath(["PROPOSED", "AUTHORIZATION_DENIED", "CLOSED"])).toBe(false);
     expect(isNegativeClosedPath(["PROPOSED", "AUTHORIZATION_DENIED", "CLOSED"], "AUTHORIZATION_DENIED")).toBe(true);
     expect(isLegalStatePath(["CLOSED", "PROPOSED"])).toBe(false);
