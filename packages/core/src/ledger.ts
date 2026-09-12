@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { Db } from "./db.js";
-import { nowUtcIso, seoulCalendarDay } from "./time.js";
+import { nowUtcIso, seoulDayUtcRange } from "./time.js";
 import type { Account, AccountStatus, AccountView, Decision, Journal, JournalStatus } from "./types.js";
 
 export function getAccount(db: Db, accountId: string): Account | undefined {
@@ -137,23 +137,19 @@ export function getJournalByIdempotency(db: Db, key: string): Journal | undefine
 }
 
 export function customerOutboundOnSeoulDay(db: Db, customerId: string, now = new Date()): number {
-  const day = seoulCalendarDay(now);
-  const rows = db
+  const { startUtc, endUtc } = seoulDayUtcRange(now);
+  const row = db
     .prepare(
-      `SELECT j.amount AS amount, j.created_at AS created_at
+      `SELECT COALESCE(SUM(j.amount), 0) AS total
        FROM journals j
        JOIN accounts a ON a.id = j.from_account_id
        WHERE a.customer_id = ?
-         AND j.status IN ('POSTED', 'PENDING')`,
+         AND j.status IN ('POSTED', 'PENDING')
+         AND j.created_at >= ?
+         AND j.created_at < ?`,
     )
-    .all(customerId) as { amount: number; created_at: string }[];
-  let sum = 0;
-  for (const row of rows) {
-    if (seoulCalendarDay(new Date(row.created_at)) === day) {
-      sum += Number(row.amount);
-    }
-  }
-  return sum;
+    .get(customerId, startUtc, endUtc) as { total: number };
+  return Number(row.total);
 }
 
 export function postedEntrySum(db: Db): { debit: number; credit: number } {

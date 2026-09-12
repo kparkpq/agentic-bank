@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { Bank } from "./bank.js";
-import { availableSumAll, entrySides, pendingDebits, postedEntrySum } from "./ledger.js";
+import { availableSumAll, customerOutboundOnSeoulDay, entrySides, pendingDebits, postedEntrySum } from "./ledger.js";
+import { seoulDayUtcRange } from "./time.js";
 import { COPY_DENIED, COPY_PENDING, COPY_POSTED, DAILY_OUTBOUND_CAP_KRW, DUAL_CONTROL_AMOUNT_KRW } from "./types.js";
 
 function seeded(): Bank {
@@ -410,6 +411,33 @@ describe("policy", () => {
     expect(r.decision_ref).toBe(decides[0]!.audit_id);
     expect(bank.journal(r.journal_id!)?.decision_ref).toBe(decides[0]!.audit_id);
     expect(bank.journal(r.journal_id!)?.created_by).toBe("agent");
+    bank.close();
+  });
+
+  it("aggregates Seoul-day outbound with a bounded SQL range", () => {
+    const { bank, sessionId } = transferAgent("syn_alice");
+    bank.tool(sessionId, "transfer", {
+      from_account_id: "acc_alice_chk",
+      to_account_id: "acc_alice_sav",
+      amount: 100_000,
+      idempotency_key: "test:seoul-day-sql:v0",
+    });
+    const now = new Date();
+    expect(customerOutboundOnSeoulDay(bank.db, "syn_alice", now)).toBe(100_000);
+    const { startUtc, endUtc } = seoulDayUtcRange(now);
+    const plan = bank.db
+      .prepare(
+        `EXPLAIN QUERY PLAN
+         SELECT COALESCE(SUM(j.amount), 0) AS total
+         FROM journals j
+         JOIN accounts a ON a.id = j.from_account_id
+         WHERE a.customer_id = ?
+           AND j.status IN ('POSTED', 'PENDING')
+           AND j.created_at >= ?
+           AND j.created_at < ?`,
+      )
+      .all("syn_alice", startUtc, endUtc) as { detail: string }[];
+    expect(plan.some((row) => /idx_journals_from_status_created|USING INDEX/i.test(row.detail))).toBe(true);
     bank.close();
   });
 });

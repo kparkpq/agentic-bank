@@ -17,9 +17,12 @@ import {
   type InterpreterDescriptor,
   type LedgerObservation,
   type Mandate,
+  type NegativeClosureProof,
+  type NegativeClosureProofBody,
   type PolicyArtifact,
   type ProposedAction,
   type SignatureInput,
+  type StepUpApproval,
   type TrustRootManifest,
   type TrustStore,
 } from "./types.js";
@@ -33,6 +36,12 @@ export type SyntheticAuthorities = Record<AuthorityRole, SyntheticAuthority>;
 
 export interface SyntheticProtocolFixture {
   proof: ClosureProof;
+  trust_store: TrustStore;
+  authorities: SyntheticAuthorities;
+}
+
+export interface SyntheticNegativeProtocolFixture {
+  proof: NegativeClosureProof;
   trust_store: TrustStore;
   authorities: SyntheticAuthorities;
 }
@@ -80,6 +89,7 @@ export function createSyntheticClosureFixture(): SyntheticProtocolFixture {
     snapshot_authority: createAuthority("snapshot_authority", "synthetic-snapshot-authority"),
     decision_authority: createAuthority("decision_authority", "synthetic-decision-authority"),
     capsule_authority: createAuthority("capsule_authority", "synthetic-capsule-authority"),
+    approver: createAuthority("approver", "synthetic-approver"),
     executor: createAuthority("executor", "synthetic-executor"),
     ledger: createAuthority("ledger", "synthetic-ledger"),
     closure_authority: createAuthority("closure_authority", "synthetic-closure-authority"),
@@ -288,6 +298,8 @@ export function createSyntheticClosureFixture(): SyntheticProtocolFixture {
     receipt_body_hash: hashSignedObjectBody(receiptBody),
     effect_hash: hashTransferEffect(effect),
     status: "POSTED",
+    mutation_count: "1",
+    action_id: actionBody.action_id,
     ledger_sequence: "1",
     observed_at: "2026-01-01T00:07:00.000Z",
   };
@@ -333,6 +345,178 @@ export function createSyntheticClosureFixture(): SyntheticProtocolFixture {
   return { proof, trust_store: trustStore, authorities };
 }
 
-export function signingInputFor(fixture: SyntheticProtocolFixture, role: AuthorityRole): SignatureInput {
+export function signingInputFor(
+  fixture: SyntheticProtocolFixture | SyntheticNegativeProtocolFixture,
+  role: AuthorityRole,
+): SignatureInput {
   return signatureInput(fixture.authorities[role]);
+}
+
+export function createSyntheticStepUpClosureFixture(): SyntheticProtocolFixture {
+  const fixture = createSyntheticClosureFixture();
+  const { authorities } = fixture;
+  const actionBody = {
+    ...fixture.proof.body.action.body,
+    transfer: { ...fixture.proof.body.action.body.transfer, amount: "500000" },
+  };
+  const action = createSignedEnvelope(actionBody, [signatureInput(authorities.action_proposer)]);
+  const effect = deriveTransferEffect(actionBody);
+  const actionHash = hashSignedObjectBody(actionBody);
+  const effectHash = hashTransferEffect(effect);
+
+  const snapshotBody = {
+    ...fixture.proof.body.decision_input.body,
+    action_hash: actionHash,
+    spendable_funds: "1000000",
+    daily_spent: "0",
+  };
+  const decisionInput = createSignedEnvelope(snapshotBody, [signatureInput(authorities.snapshot_authority)]);
+
+  const decisionBody: AuthorizationDecision = {
+    ...fixture.proof.body.decision.body,
+    action_hash: actionHash,
+    snapshot_hash: hashSignedObjectBody(snapshotBody),
+    outcome: "STEP_UP",
+    reason_code: "STEP_UP_REQUIRED",
+    approved_effect_hash: effectHash,
+  };
+  const decision = createSignedEnvelope(decisionBody, [signatureInput(authorities.decision_authority)]);
+  const decisionHash = hashSignedObjectBody(decisionBody);
+
+  const approvalBody: StepUpApproval = {
+    object_type: "StepUpApproval",
+    protocol_version: PROTOCOL_VERSION,
+    schema_version: SCHEMA_VERSION,
+    issuer: authorities.approver.binding.issuer,
+    key_id: authorities.approver.binding.key_id,
+    issued_at: "2026-01-01T00:03:30.000Z",
+    manifest_version: fixture.proof.body.manifest_version,
+    manifest_hash: fixture.proof.body.manifest_hash,
+    trust_epoch: fixture.proof.body.trust_epoch,
+    approval_id: "synthetic-approval-1",
+    action_hash: actionHash,
+    decision_hash: decisionHash,
+    approved_effect_hash: effectHash,
+    requester_id: actionBody.customer_id,
+    approver_id: "synthetic-operator-1",
+    not_before: "2026-01-01T00:03:30.000Z",
+    expires_at: "2026-01-01T00:10:00.000Z",
+  };
+  const approval = createSignedEnvelope(approvalBody, [signatureInput(authorities.approver)]);
+
+  const capsuleBody = {
+    ...fixture.proof.body.capsule.body,
+    action_hash: actionHash,
+    decision_hash: decisionHash,
+    approved_effect_hash: effectHash,
+  };
+  const capsule = createSignedEnvelope(capsuleBody, [signatureInput(authorities.capsule_authority)]);
+  const capsuleHash = hashSignedObjectBody(capsuleBody);
+
+  const consumptionBody = {
+    ...fixture.proof.body.consumption_records[0]!.body,
+    capsule_hash: capsuleHash,
+    action_hash: actionHash,
+    decision_hash: decisionHash,
+  };
+  const consumption = createSignedEnvelope(consumptionBody, [signatureInput(authorities.executor)]);
+
+  const receiptBody = {
+    ...fixture.proof.body.receipt.body,
+    capsule_hash: capsuleHash,
+    consumption_hash: hashSignedObjectBody(consumptionBody),
+    action_hash: actionHash,
+    decision_hash: decisionHash,
+    effect_hash: effectHash,
+  };
+  const receipt = createSignedEnvelope(receiptBody, [
+    signatureInput(authorities.executor),
+    signatureInput(authorities.ledger),
+  ]);
+
+  const observationBody = {
+    ...fixture.proof.body.ledger_observation.body,
+    receipt_body_hash: hashSignedObjectBody(receiptBody),
+    effect_hash: effectHash,
+    mutation_count: "1",
+    action_id: actionBody.action_id,
+  };
+  const ledgerObservation = createSignedEnvelope(observationBody, [signatureInput(authorities.ledger)]);
+
+  const proofBody: ClosureProofBody = {
+    ...fixture.proof.body,
+    action,
+    effect,
+    decision_input: decisionInput,
+    decision,
+    step_up_approval: approval,
+    capsule,
+    consumption_records: [consumption],
+    receipt,
+    ledger_observation: ledgerObservation,
+    state_path: ["PROPOSED", "STEP_UP_REQUIRED", "APPROVED", "EXECUTION_INTENT_RECORDED", "EXECUTED", "CLOSED"],
+  };
+  return {
+    proof: createSignedEnvelope(proofBody, [signatureInput(authorities.closure_authority)]),
+    trust_store: fixture.trust_store,
+    authorities,
+  };
+}
+
+export function createSyntheticNegativeClosureFixture(): SyntheticNegativeProtocolFixture {
+  const fixture = createSyntheticClosureFixture();
+  const { authorities } = fixture;
+  const snapshotBody = {
+    ...fixture.proof.body.decision_input.body,
+    spendable_funds: "1",
+  };
+  const decisionInput = createSignedEnvelope(snapshotBody, [signatureInput(authorities.snapshot_authority)]);
+  const decisionBody: AuthorizationDecision = {
+    ...fixture.proof.body.decision.body,
+    snapshot_hash: hashSignedObjectBody(snapshotBody),
+    outcome: "DENY",
+    reason_code: "INSUFFICIENT_SPENDABLE_FUNDS",
+    approved_effect_hash: null,
+  };
+  const decision = createSignedEnvelope(decisionBody, [signatureInput(authorities.decision_authority)]);
+  const observationBody: LedgerObservation = {
+    ...fixture.proof.body.ledger_observation.body,
+    receipt_body_hash: null,
+    effect_hash: null,
+    status: "ABSENT",
+    mutation_count: "0",
+    action_id: fixture.proof.body.action.body.action_id,
+  };
+  const ledgerObservation = createSignedEnvelope(observationBody, [signatureInput(authorities.ledger)]);
+  const proofBody: NegativeClosureProofBody = {
+    object_type: "NegativeClosureProof",
+    protocol_version: PROTOCOL_VERSION,
+    schema_version: SCHEMA_VERSION,
+    issuer: authorities.closure_authority.binding.issuer,
+    key_id: authorities.closure_authority.binding.key_id,
+    issued_at: "2026-01-01T00:08:00.000Z",
+    manifest_version: fixture.proof.body.manifest_version,
+    manifest_hash: fixture.proof.body.manifest_hash,
+    trust_epoch: fixture.proof.body.trust_epoch,
+    proof_id: "synthetic-negative-proof-1",
+    assurance_profile: ASSURANCE_PROFILE,
+    terminal_reason: "AUTHORIZATION_DENIED",
+    manifest: fixture.proof.body.manifest,
+    mandate: fixture.proof.body.mandate,
+    action: fixture.proof.body.action,
+    effect: fixture.proof.body.effect,
+    policy: fixture.proof.body.policy,
+    interpreter: fixture.proof.body.interpreter,
+    decision_input: decisionInput,
+    decision,
+    step_up_approval: null,
+    ledger_observation: ledgerObservation,
+    state_path: ["PROPOSED", "AUTHORIZATION_DENIED", "CLOSED"],
+    closed_at: "2026-01-01T00:08:00.000Z",
+  };
+  return {
+    proof: createSignedEnvelope(proofBody, [signatureInput(authorities.closure_authority)]),
+    trust_store: fixture.trust_store,
+    authorities,
+  };
 }

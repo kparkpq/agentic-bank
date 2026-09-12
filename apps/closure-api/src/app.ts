@@ -61,6 +61,21 @@ export function createClosureApp(service: ExecutionClosureService): Hono {
     );
   });
 
+  app.post("/v1/authorizations/:decisionId/approvals", async (c) => {
+    return reply(
+      c,
+      service.approve(
+        c.req.param("decisionId"),
+        idempotencyKey(c.req.header("Idempotency-Key")),
+        c.req.header("X-Approver-Id"),
+      ),
+    );
+  });
+
+  app.post("/v1/mandates/:mandateId/revoke", async (c) => {
+    return reply(c, service.revokeMandate(c.req.param("mandateId"), idempotencyKey(c.req.header("Idempotency-Key"))));
+  });
+
   app.post("/v1/authorizations/:decisionId/commit", async (c) => {
     return reply(c, service.commit(c.req.param("decisionId"), idempotencyKey(c.req.header("Idempotency-Key"))));
   });

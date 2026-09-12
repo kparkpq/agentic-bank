@@ -4,6 +4,14 @@ export function nowUtcIso(now = new Date()): string {
   return now.toISOString();
 }
 
+/** Half-open UTC bounds for the Asia/Seoul calendar day that contains `now`. */
+export function seoulDayUtcRange(now = new Date()): { startUtc: string; endUtc: string } {
+  const day = seoulCalendarDay(now);
+  const start = new Date(`${day}T00:00:00+09:00`);
+  const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
+  return { startUtc: start.toISOString(), endUtc: end.toISOString() };
+}
+
 /** YYYY-MM-DD in Asia/Seoul for calendar-day caps. */
 export function seoulCalendarDay(now = new Date()): string {
   const parts = new Intl.DateTimeFormat("en-CA", {

@@ -24,11 +24,13 @@ import type {
   InterpreterDescriptor,
   LedgerObservation,
   Mandate,
+  NegativeClosureProof,
   PolicyArtifact,
   ProposedAction,
   SchemaObjectType,
   Signature,
   SignedEnvelope,
+  StepUpApproval,
   TransferEffect,
   TrustRootManifest,
   TrustStore,
@@ -98,11 +100,13 @@ export const VALIDATOR_REGISTRY = Object.freeze({
   InterpreterDescriptor: compileDefinition("interpreterDescriptor"),
   DecisionInputSnapshot: compileDefinition("decisionInputSnapshot"),
   AuthorizationDecision: compileDefinition("authorizationDecision"),
+  StepUpApproval: compileDefinition("stepUpApproval"),
   ExecutionCapsule: compileDefinition("executionCapsule"),
   ConsumptionRecord: compileDefinition("consumptionRecord"),
   ExecutionReceipt: compileDefinition("executionReceipt"),
   LedgerObservation: compileDefinition("ledgerObservation"),
   ClosureProof: compileDefinition("closureProof"),
+  NegativeClosureProof: compileDefinition("negativeClosureProof"),
   Signature: compileDefinition("signature"),
   SignedEnvelope: compileDefinition("signedEnvelope"),
 }) satisfies Readonly<Record<SchemaObjectType, ValidateFunction>>;
@@ -135,11 +139,13 @@ export type ValidationTypeMap = {
   InterpreterDescriptor: InterpreterDescriptor;
   DecisionInputSnapshot: DecisionInputSnapshot;
   AuthorizationDecision: AuthorizationDecision;
+  StepUpApproval: StepUpApproval;
   ExecutionCapsule: ExecutionCapsule;
   ConsumptionRecord: ConsumptionRecord;
   ExecutionReceipt: ExecutionReceipt;
   LedgerObservation: LedgerObservation;
   ClosureProof: ClosureProof;
+  NegativeClosureProof: NegativeClosureProof;
   Signature: Signature;
   SignedEnvelope: SignedEnvelope<unknown>;
 };

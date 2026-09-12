@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { createSignedEnvelope, hashSignedObjectBody } from "./crypto.js";
-import { createSyntheticClosureFixture, signingInputFor } from "./testing.js";
+import {
+  createSyntheticClosureFixture,
+  createSyntheticNegativeClosureFixture,
+  createSyntheticStepUpClosureFixture,
+  signingInputFor,
+} from "./testing.js";
 import { verifyClosureProof } from "./verify.js";
 
 function clone<T>(value: T): T {
@@ -104,5 +109,45 @@ describe("closure proof verifier", () => {
     proof.body.issued_at = "2026-01-01T00:10:00.000Z";
     const closed = createSignedEnvelope(proof.body, [signingInputFor(fixture, "closure_authority")]);
     expect(verifyClosureProof(closed, fixture.trust_store).code).toBe("CAPSULE_TIME_INVALID");
+  });
+
+  it("accepts the synthetic step-up success fixture", () => {
+    const fixture = createSyntheticStepUpClosureFixture();
+    expect(verifyClosureProof(fixture.proof, fixture.trust_store)).toMatchObject({
+      valid: true,
+      code: "VALID",
+      closure_kind: "success",
+    });
+  });
+
+  it("rejects self-approval on a step-up proof", () => {
+    const fixture = createSyntheticStepUpClosureFixture();
+    const proof = clone(fixture.proof);
+    proof.body.step_up_approval!.body.approver_id = proof.body.step_up_approval!.body.requester_id;
+    proof.body.step_up_approval = createSignedEnvelope(proof.body.step_up_approval!.body, [
+      signingInputFor(fixture, "approver"),
+    ]);
+    const closed = createSignedEnvelope(proof.body, [signingInputFor(fixture, "closure_authority")]);
+    expect(verifyClosureProof(closed, fixture.trust_store).code).toBe("SEPARATION_FAILURE");
+  });
+
+  it("accepts a negative NSF closure and rejects a side-effect observation", () => {
+    const fixture = createSyntheticNegativeClosureFixture();
+    expect(verifyClosureProof(fixture.proof, fixture.trust_store)).toMatchObject({
+      valid: true,
+      code: "VALID",
+      closure_kind: "negative",
+      proof_id: "synthetic-negative-proof-1",
+      receipt_body_hash: null,
+      effect_hash: null,
+    });
+
+    const tainted = clone(fixture.proof);
+    tainted.body.ledger_observation.body.mutation_count = "1";
+    tainted.body.ledger_observation = createSignedEnvelope(tainted.body.ledger_observation.body, [
+      signingInputFor(fixture, "ledger"),
+    ]);
+    const closed = createSignedEnvelope(tainted.body, [signingInputFor(fixture, "closure_authority")]);
+    expect(verifyClosureProof(closed, fixture.trust_store).code).toBe("SIDE_EFFECT_PRESENT");
   });
 });

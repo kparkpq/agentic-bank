@@ -26,18 +26,30 @@ export function executeSyntheticTransfer(
     amount: input.amount,
     idempotency_key: input.idempotency_key,
   });
+  const posted =
+    result.ok &&
+    result.journal_id &&
+    result.journal_status === "POSTED" &&
+    result.decision === "ALLOW" &&
+    result.rule_id === "ALLOW"
+      ? result
+      : result.ok &&
+          result.journal_id &&
+          result.journal_status === "PENDING" &&
+          result.decision === "DUAL_CONTROL"
+        ? bank.approve(result.journal_id)
+        : result;
   if (
-    !result.ok ||
-    result.decision !== "ALLOW" ||
-    result.rule_id !== "ALLOW" ||
-    result.journal_status !== "POSTED" ||
-    !result.journal_id
+    !posted.ok ||
+    posted.journal_status !== "POSTED" ||
+    !posted.journal_id ||
+    (posted.decision !== "ALLOW" && posted.decision !== "OPERATOR_APPROVE")
   ) {
-    throw new Error(result.reason || "synthetic executor did not post an ALLOW transfer");
+    throw new Error(posted.reason || result.reason || "synthetic executor did not post an ALLOW transfer");
   }
 
-  const journal = getJournal(bank.db, result.journal_id);
-  const entries = journalEntries(bank.db, result.journal_id);
+  const journal = getJournal(bank.db, posted.journal_id);
+  const entries = journalEntries(bank.db, posted.journal_id);
   if (
     !journal ||
     journal.status !== "POSTED" ||

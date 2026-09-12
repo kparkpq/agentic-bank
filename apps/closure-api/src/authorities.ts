@@ -76,6 +76,7 @@ export function createClosureRuntimeKeys(issuedAt: string): ClosureRuntimeKeys {
     snapshot_authority: createAuthority("snapshot_authority", "synthetic-snapshot-authority"),
     decision_authority: createAuthority("decision_authority", "synthetic-decision-authority"),
     capsule_authority: createAuthority("capsule_authority", "synthetic-capsule-authority"),
+    approver: createAuthority("approver", "synthetic-approver"),
     executor: createAuthority("executor", "synthetic-executor"),
     ledger: createAuthority("ledger", "synthetic-ledger"),
     closure_authority: createAuthority("closure_authority", "synthetic-closure-authority"),
