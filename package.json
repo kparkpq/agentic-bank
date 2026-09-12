@@ -13,7 +13,7 @@
     "check": "pnpm typecheck && pnpm test && pnpm build",
     "start": "pnpm --filter @sapiensq/web build && pnpm --filter @sapiensq/api start",
     "seed": "pnpm --filter @sapiensq/core seed",
-    "test": "pnpm --filter @sapiensq/core test",
+    "test": "pnpm --filter @sapiensq/core --filter @execution-closure/protocol --filter @execution-closure/api test",
     "eval": "pnpm --filter @sapiensq/core test && pnpm --filter @sapiensq/evals eval",
     "walk": "pnpm --filter @sapiensq/evals walk",
     "typecheck": "pnpm -r typecheck",
