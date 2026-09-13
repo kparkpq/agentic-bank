@@ -57,7 +57,7 @@ describe("closure proof verifier", () => {
   it("rejects an untrusted root", () => {
     const fixture = createSyntheticClosureFixture();
     const store = clone(fixture.trust_store);
-    store.trusted_roots[0]!.public_key = `${store.trusted_roots[0]!.public_key.slice(0, -1)}A`;
+    store.trusted_roots[0]!.public_key = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
     expect(verifyClosureProof(fixture.proof, store).code).toBe("TRUST_ROOT_NOT_TRUSTED");
   });
 

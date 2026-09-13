@@ -8,6 +8,8 @@
     "schema": "schemas/ec-v0.schema.json",
     "cli": "bin/execution-closure-verify.mjs",
     "fixtures": "fixtures/interop-vector.json",
+    "reason_codes": "fixtures/reason-codes.json",
+    "rfc8785": "fixtures/rfc8785",
     "openapi": "../../docs/openapi/execution-closure-v0.yaml",
     "quickstart": "../../docs/execution-closure-quickstart.md"
   }

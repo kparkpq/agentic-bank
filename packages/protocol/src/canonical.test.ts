@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { canonicalizeJson, compareUtf8, concatenateBytes, utf8Bytes } from "./canonical.js";
+import { canonicalizeJson, compareUtf8, concatenateBytes, requireCanonicalString, utf8Bytes } from "./canonical.js";
 
 describe("canonical JSON", () => {
   it("sorts object keys and keeps array order", () => {
@@ -18,6 +18,7 @@ describe("canonical JSON", () => {
 
   it("rejects lone surrogates and non-finite numbers", () => {
     expect(() => canonicalizeJson("\uD800")).toThrow(/surrogate/);
+    expect(() => canonicalizeJson("\uDC00")).toThrow(/surrogate/);
     expect(() => canonicalizeJson(Number.POSITIVE_INFINITY)).toThrow(/non-finite/);
   });
 
@@ -31,6 +32,26 @@ describe("canonical JSON", () => {
     expect(Array.from(concatenateBytes(utf8Bytes("ec"), utf8Bytes("-v0")))).toEqual(
       Array.from(utf8Bytes("ec-v0")),
     );
+  });
+
+  it("rejects sparse arrays, surrogate keys, bigint, and a mocked non-string codec", async () => {
+    const sparse: unknown[] = [];
+    sparse[1] = 1;
+    expect(() => canonicalizeJson(sparse)).toThrow(/sparse array/);
+    expect(() => canonicalizeJson({ "\uD800": 1 })).toThrow(/surrogate/);
+    expect(() => canonicalizeJson(1n)).toThrow(/bigint/);
+    expect(canonicalizeJson({ "ok\uD83D\uDE00": "pair" })).toContain("ok");
+    expect(() => requireCanonicalString(undefined)).toThrow(/unable to canonicalize/);
+    expect(requireCanonicalString("{}")).toBe("{}");
+  });
+
+  it("matches official RFC 8785 vectors byte-for-byte", () => {
+    const dir = join(dirname(fileURLToPath(import.meta.url)), "../fixtures/rfc8785");
+    for (const name of ["values", "unicode", "structures"]) {
+      const input = JSON.parse(readFileSync(join(dir, `${name}.in.json`), "utf8")) as unknown;
+      const expected = readFileSync(join(dir, `${name}.out.json`), "utf8").trimEnd();
+      expect(canonicalizeJson(input)).toBe(expected);
+    }
   });
 
   it("matches the committed Python interop vector", () => {
