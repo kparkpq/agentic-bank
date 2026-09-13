@@ -1,37 +1,47 @@
 #!/usr/bin/env -S node --import tsx
 
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import process from "node:process";
-import {
-  formatCliResult,
-  verifyJsonDocuments
-} from "../src/cli.ts";
+import { fileURLToPath } from "node:url";
 
-const args = process.argv.slice(2);
-let result;
+const schemaPath = join(dirname(fileURLToPath(import.meta.url)), "../schemas/ec-v0.schema.json");
 
-if (args.length !== 2) {
-  result = {
-    valid: false,
-    code: "CLI_USAGE_ERROR",
-    path: "/",
-    message: "usage: execution-closure-verify <proof.json> <trust-store.json>"
-  };
+if (!existsSync(schemaPath)) {
+  process.stdout.write(
+    `${JSON.stringify({
+      valid: false,
+      code: "MISSING_SCHEMA",
+      path: "/schemas/ec-v0.schema.json",
+      message: "MISSING_SCHEMA: schemas/ec-v0.schema.json is not packaged"
+    })}\n`
+  );
+  process.exitCode = 1;
 } else {
-  try {
-    result = verifyJsonDocuments(
-      readFileSync(args[0], "utf8"),
-      readFileSync(args[1], "utf8")
-    );
-  } catch {
+  const { cliExitCode, formatCliResult, verifyJsonDocuments } = await import("../src/cli.ts");
+  let result;
+  if (process.argv.length !== 4) {
     result = {
       valid: false,
-      code: "CLI_FILE_ERROR",
+      code: "CLI_USAGE_ERROR",
       path: "/",
-      message: "unable to read proof or trust-store file"
+      message: "usage: execution-closure-verify <proof.json> <trust-store.json>"
     };
+  } else {
+    try {
+      result = verifyJsonDocuments(
+        readFileSync(process.argv[2], "utf8"),
+        readFileSync(process.argv[3], "utf8")
+      );
+    } catch {
+      result = {
+        valid: false,
+        code: "CLI_FILE_ERROR",
+        path: "/",
+        message: "unable to read proof or trust-store file"
+      };
+    }
   }
+  process.stdout.write(formatCliResult(result));
+  process.exitCode = cliExitCode(result);
 }
-
-process.stdout.write(formatCliResult(result));
-process.exitCode = result.valid ? 0 : 1;

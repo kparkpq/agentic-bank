@@ -10,6 +10,7 @@ import {
   isLegalStatePath,
   isNegativeClosedPath,
   isSuccessfulStatePath,
+  isSuccessfulStepUpStatePath,
   SUCCESSFUL_STATE_PATH,
   SUCCESSFUL_STEP_UP_STATE_PATH,
 } from "./state.js";
@@ -86,6 +87,9 @@ describe("evaluator and state", () => {
     ).toBe(true);
     expect(isSuccessfulStatePath(["PROPOSED", "AUTHORIZATION_DENIED", "CLOSED"])).toBe(false);
     expect(isNegativeClosedPath(["PROPOSED", "AUTHORIZATION_DENIED", "CLOSED"], "AUTHORIZATION_DENIED")).toBe(true);
+    expect(isNegativeClosedPath(["PROPOSED", "AUTHORIZATION_DENIED", "CLOSED"], "REVOKED")).toBe(false);
+    expect(isSuccessfulStepUpStatePath([...SUCCESSFUL_STATE_PATH])).toBe(false);
     expect(isLegalStatePath(["CLOSED", "PROPOSED"])).toBe(false);
+    expect(isKrwTransferDescriptorCompatible({ ...interpreter, interpreter_id: "other" as typeof interpreter.interpreter_id })).toBe(false);
   });
 });

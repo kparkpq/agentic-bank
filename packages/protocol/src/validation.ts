@@ -12,7 +12,14 @@ type AjvConstructor = new (options?: {
   compile(schema: object): ValidateFunction;
 };
 
-const Ajv = (AjvImport as unknown as { default?: AjvConstructor }).default ?? (AjvImport as unknown as AjvConstructor);
+export function resolveModuleConstructor<T>(mod: { default?: T } | T): T {
+  if (mod && typeof mod === "object" && "default" in mod && mod.default) {
+    return mod.default;
+  }
+  return mod as T;
+}
+
+const Ajv = resolveModuleConstructor(AjvImport as unknown as { default?: AjvConstructor } | AjvConstructor);
 import protocolSchema from "../schemas/ec-v0.schema.json" with { type: "json" };
 import type {
   AuthorizationDecision,
@@ -121,6 +128,18 @@ function pointerToken(value: string): string {
   return value.replaceAll("~", "~0").replaceAll("/", "~1");
 }
 
+export function mapValidatorIssues(
+  objectType: SchemaObjectType,
+  errors: ErrorObject[] | null | undefined,
+): ValidationIssue[] {
+  return (errors ?? []).map((error) => ({
+    object_type: objectType,
+    path: issuePath(error),
+    keyword: error.keyword,
+    message: error.message ?? "schema validation failed",
+  }));
+}
+
 function issuePath(error: ErrorObject): string {
   const instance = error.instancePath || "";
   if (error.keyword === "required" && typeof error.params.missingProperty === "string") {
@@ -177,11 +196,6 @@ export function validateObject(objectType: string, input: unknown): ValidationRe
   }
   return {
     valid: false,
-    issues: (validator.errors ?? []).map((error) => ({
-      object_type: typedObjectType,
-      path: issuePath(error),
-      keyword: error.keyword,
-      message: error.message ?? "schema validation failed",
-    })),
+    issues: mapValidatorIssues(typedObjectType, validator.errors),
   };
 }

@@ -26,8 +26,9 @@
   "scripts": {
     "build": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
-    "verify": "node --import tsx bin/execution-closure-verify.mjs"
+    "test": "vitest run --coverage",
+    "verify": "node --import tsx bin/execution-closure-verify.mjs",
+    "packed-test": "node scripts/packed-package-test.mjs"
   },
   "dependencies": {
     "ajv": "8.17.1",
@@ -36,6 +37,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.13.10",
+    "@vitest/coverage-v8": "^3.0.8",
     "typescript": "^5.8.2",
     "vitest": "^3.0.8"
   }

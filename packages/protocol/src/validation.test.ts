@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createSyntheticClosureFixture } from "./testing.js";
-import { validateObject } from "./validation.js";
+import { mapValidatorIssues, resolveModuleConstructor, validateObject } from "./validation.js";
 
 describe("schema validation", () => {
   const fixture = createSyntheticClosureFixture();
@@ -28,5 +28,38 @@ describe("schema validation", () => {
       );
     }
     expect(validateObject("UnknownType", {}).valid).toBe(false);
+  });
+
+  it("maps missing required fields and empty validator errors", () => {
+    const result = validateObject("Signature", {});
+    expect(result.valid).toBe(false);
+    if (!result.valid) {
+      expect(result.issues.some((issue) => issue.path.includes("role") || issue.keyword === "required")).toBe(true);
+    }
+    expect(mapValidatorIssues("Signature", undefined)).toEqual([]);
+    expect(
+      mapValidatorIssues("Signature", [
+        {
+          instancePath: "",
+          schemaPath: "#/required",
+          keyword: "required",
+          params: { missingProperty: "role" },
+          message: undefined,
+        },
+      ]),
+    ).toMatchObject([{ path: "/role", message: "schema validation failed" }]);
+    expect(
+      mapValidatorIssues("Signature", [
+        {
+          instancePath: "",
+          schemaPath: "#/type",
+          keyword: "type",
+          params: {},
+          message: "bad type",
+        },
+      ]),
+    ).toMatchObject([{ path: "/" }]);
+    expect(resolveModuleConstructor({ default: Array })).toBe(Array);
+    expect(resolveModuleConstructor(Array)).toBe(Array);
   });
 });

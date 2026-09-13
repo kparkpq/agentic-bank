@@ -43,6 +43,8 @@ jobs:
           test "${#tarballs[@]}" -eq 1
           npm publish --dry-run --ignore-scripts --access restricted \
             "$GITHUB_WORKSPACE/${tarballs[0]}"
+      - name: Install packed tarball and verify CLI artifacts
+        run: pnpm --filter @execution-closure/protocol packed-test
       - uses: actions/upload-artifact@v4
         with:
           name: npm-package-dry-run

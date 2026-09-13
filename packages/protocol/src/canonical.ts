@@ -81,13 +81,16 @@ export function assertJsonValue(value: unknown): asserts value is JsonValue {
   assertJsonValueAt(value, "", new Set());
 }
 
-export function canonicalizeJson(value: unknown): string {
-  assertJsonValue(value);
-  const encoded = canonicalize(value);
+export function requireCanonicalString(encoded: unknown): string {
   if (typeof encoded !== "string") {
     throw new TypeError("unable to canonicalize JSON value");
   }
   return encoded;
+}
+
+export function canonicalizeJson(value: unknown): string {
+  assertJsonValue(value);
+  return requireCanonicalString(canonicalize(value));
 }
 
 export function utf8Bytes(value: string): Uint8Array {
