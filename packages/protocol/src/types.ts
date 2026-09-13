@@ -28,6 +28,7 @@ export type AuthorityRole =
   | "snapshot_authority"
   | "decision_authority"
   | "capsule_authority"
+  | "approver"
   | "executor"
   | "ledger"
   | "closure_authority";
@@ -40,11 +41,13 @@ export type SignedObjectType =
   | "InterpreterDescriptor"
   | "DecisionInputSnapshot"
   | "AuthorizationDecision"
+  | "StepUpApproval"
   | "ExecutionCapsule"
   | "ConsumptionRecord"
   | "ExecutionReceipt"
   | "LedgerObservation"
-  | "ClosureProof";
+  | "ClosureProof"
+  | "NegativeClosureProof";
 
 export type ProtocolObjectType =
   | SignedObjectType
@@ -107,6 +110,16 @@ export interface TrustedRoot {
   public_key: string;
 }
 
+export type KeyIncidentKind = "rotation" | "compromise";
+
+export interface KeyIncident {
+  key_id: string;
+  issuer: string;
+  kind: KeyIncidentKind;
+  revoked_at?: Timestamp;
+  invalid_from?: Timestamp;
+}
+
 export interface TrustStore {
   object_type: "TrustStore";
   protocol_version: ProtocolVersion;
@@ -116,6 +129,8 @@ export interface TrustStore {
   manifest_hash: HashString;
   trust_epoch: string;
   trusted_roots: TrustedRoot[];
+  installed_at?: Timestamp;
+  key_incidents?: KeyIncident[];
 }
 
 export interface ManifestPinnedObject<T extends SignedObjectType> {
@@ -217,10 +232,21 @@ export interface AuthorizationDecision extends ManifestPinnedObject<"Authorizati
   policy_hash: HashString;
   interpreter_hash: HashString;
   snapshot_hash: HashString;
-  outcome: "ALLOW" | "DENY";
+  outcome: "ALLOW" | "DENY" | "STEP_UP";
   reason_code: EvaluatorReasonCode;
   approved_effect_hash: HashString | null;
   authorized_at: Timestamp;
+}
+
+export interface StepUpApproval extends ManifestPinnedObject<"StepUpApproval"> {
+  approval_id: string;
+  action_hash: HashString;
+  decision_hash: HashString;
+  approved_effect_hash: HashString;
+  requester_id: string;
+  approver_id: string;
+  not_before: Timestamp;
+  expires_at: Timestamp;
 }
 
 export interface ExecutionCapsule extends ManifestPinnedObject<"ExecutionCapsule"> {
@@ -262,9 +288,11 @@ export interface ExecutionReceipt extends ManifestPinnedObject<"ExecutionReceipt
 export interface LedgerObservation extends ManifestPinnedObject<"LedgerObservation"> {
   observation_id: string;
   ledger_id: string;
-  receipt_body_hash: HashString;
-  effect_hash: HashString;
-  status: "POSTED";
+  receipt_body_hash: HashString | null;
+  effect_hash: HashString | null;
+  status: "POSTED" | "ABSENT";
+  mutation_count: NonNegativeIntegerString;
+  action_id: string;
   ledger_sequence: string;
   observed_at: Timestamp;
 }
@@ -273,12 +301,22 @@ export type ProtocolState =
   | "PROPOSED"
   | "AUTHORIZED"
   | "AUTHORIZATION_DENIED"
+  | "STEP_UP_REQUIRED"
+  | "APPROVED"
   | "EXECUTION_INTENT_RECORDED"
   | "EXECUTED"
   | "EXECUTION_FAILED"
+  | "EXECUTION_UNKNOWN"
   | "CANCELLED"
   | "EXPIRED"
+  | "REVOKED"
   | "CLOSED";
+
+export type NegativeTerminalReason =
+  | "AUTHORIZATION_DENIED"
+  | "REVOKED"
+  | "EXPIRED"
+  | "EXECUTION_FAILED";
 
 export interface ClosureProofBody extends ManifestPinnedObject<"ClosureProof"> {
   proof_id: string;
@@ -291,6 +329,7 @@ export interface ClosureProofBody extends ManifestPinnedObject<"ClosureProof"> {
   interpreter: SignedEnvelope<InterpreterDescriptor>;
   decision_input: SignedEnvelope<DecisionInputSnapshot>;
   decision: SignedEnvelope<AuthorizationDecision>;
+  step_up_approval?: SignedEnvelope<StepUpApproval> | null;
   capsule: SignedEnvelope<ExecutionCapsule>;
   consumption_records: SignedEnvelope<ConsumptionRecord>[];
   receipt: SignedEnvelope<ExecutionReceipt>;
@@ -300,6 +339,27 @@ export interface ClosureProofBody extends ManifestPinnedObject<"ClosureProof"> {
 }
 
 export type ClosureProof = SignedEnvelope<ClosureProofBody>;
+
+export interface NegativeClosureProofBody extends ManifestPinnedObject<"NegativeClosureProof"> {
+  proof_id: string;
+  assurance_profile: AssuranceProfile;
+  terminal_reason: NegativeTerminalReason;
+  manifest: SignedEnvelope<TrustRootManifest>;
+  mandate: SignedEnvelope<Mandate>;
+  action: SignedEnvelope<ProposedAction>;
+  effect: TransferEffect;
+  policy: SignedEnvelope<PolicyArtifact>;
+  interpreter: SignedEnvelope<InterpreterDescriptor>;
+  decision_input: SignedEnvelope<DecisionInputSnapshot>;
+  decision: SignedEnvelope<AuthorizationDecision>;
+  step_up_approval: SignedEnvelope<StepUpApproval> | null;
+  ledger_observation: SignedEnvelope<LedgerObservation>;
+  state_path: ProtocolState[];
+  closed_at: Timestamp;
+}
+
+export type NegativeClosureProof = SignedEnvelope<NegativeClosureProofBody>;
+export type AnyClosureProof = ClosureProof | NegativeClosureProof;
 
 export type ProtocolObject =
   | TrustRootManifest
@@ -311,11 +371,13 @@ export type ProtocolObject =
   | InterpreterDescriptor
   | DecisionInputSnapshot
   | AuthorizationDecision
+  | StepUpApproval
   | ExecutionCapsule
   | ConsumptionRecord
   | ExecutionReceipt
   | LedgerObservation
-  | ClosureProofBody;
+  | ClosureProofBody
+  | NegativeClosureProofBody;
 
 export interface ValidationIssue {
   object_type: SchemaObjectType | "Unknown";
@@ -355,16 +417,27 @@ export type ClosureFailureCode =
   | "LEDGER_OBSERVATION_INVALID"
   | "STATE_PATH_INVALID"
   | "CLOSURE_TIME_INVALID"
+  | "SEPARATION_FAILURE"
+  | "STEP_UP_MISSING"
+  | "MANDATE_REVOKED"
+  | "SIDE_EFFECT_PRESENT"
+  | "STALE_TRUST_HEAD"
+  | "KEY_REVOKED"
+  | "UNKNOWN_KEY"
+  | "PROOF_LIMIT_EXCEEDED"
   | "INTERNAL_VERIFICATION_ERROR";
+
+export type ClosureKind = "success" | "negative";
 
 export type ClosureVerificationResult =
   | {
       valid: true;
       code: "VALID";
       proof_id: string;
+      closure_kind: ClosureKind;
       manifest_hash: HashString;
-      receipt_body_hash: HashString;
-      effect_hash: HashString;
+      receipt_body_hash: HashString | null;
+      effect_hash: HashString | null;
     }
   | {
       valid: false;

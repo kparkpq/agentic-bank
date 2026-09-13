@@ -1,0 +1,96 @@
+openapi: 3.0.3
+info:
+  title: Execution Closure Gateway
+  version: 0.1.0
+  description: Synthetic single-process Execution Closure API. Not a bank.
+servers:
+  - url: http://127.0.0.1:8790
+paths:
+  /healthz:
+    get:
+      responses:
+        "200":
+          description: Closure-only surface is up
+  /v1/trust-store:
+    get:
+      responses:
+        "200":
+          description: Explicit trust-store snapshot
+  /v1/mandates:
+    post:
+      parameters:
+        - in: header
+          name: Idempotency-Key
+          required: true
+          schema:
+            type: string
+      responses:
+        "201":
+          description: Mandate registered
+  /v1/mandates/{mandateId}/authorizations:
+    post:
+      parameters:
+        - in: path
+          name: mandateId
+          required: true
+          schema:
+            type: string
+        - in: header
+          name: Idempotency-Key
+          required: true
+          schema:
+            type: string
+      responses:
+        "201":
+          description: ALLOW
+        "202":
+          description: STEP_UP
+        "422":
+          description: DENY, expired, or revoked
+  /v1/authorizations/{decisionId}/approvals:
+    post:
+      parameters:
+        - in: header
+          name: X-Approver-Id
+          required: true
+          schema:
+            type: string
+      responses:
+        "201":
+          description: Approved
+        "422":
+          description: SEPARATION_FAILURE
+  /v1/authorizations/{decisionId}/commit:
+    post:
+      responses:
+        "201":
+          description: Closed success proof
+        "202":
+          description: EXECUTION_UNKNOWN
+  /v1/authorizations/{decisionId}/reconcile:
+    post:
+      responses:
+        "201":
+          description: Lookup closed the original receipt
+        "202":
+          description: Still unknown or unresolved
+  /v1/authorizations/{decisionId}:
+    get:
+      responses:
+        "200":
+          description: Authorization status
+  /v1/unresolved:
+    get:
+      responses:
+        "200":
+          description: Operator-visible unresolved reconciliation jobs
+  /v1/proofs/{proofId}:
+    get:
+      responses:
+        "200":
+          description: Stored proof
+  /v1/proofs/{proofId}/verify:
+    post:
+      responses:
+        "200":
+          description: Snapshot-relative verification result

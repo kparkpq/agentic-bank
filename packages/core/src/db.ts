@@ -148,6 +148,11 @@ CREATE TABLE IF NOT EXISTS book_documents (
   updated_at TEXT NOT NULL,
   PRIMARY KEY (customer_id, doc_id)
 );
+
+CREATE INDEX IF NOT EXISTS idx_journals_from_status_created
+  ON journals (from_account_id, status, created_at);
+CREATE INDEX IF NOT EXISTS idx_accounts_customer_id
+  ON accounts (customer_id);
 `;
 
 function tableColumns(db: Db, table: string): Set<string> {
@@ -181,6 +186,12 @@ function migrate(db: Db): void {
   if (policy.size > 0 && !policy.has("decide_audit_id")) {
     db.exec("ALTER TABLE session_policy ADD COLUMN decide_audit_id TEXT");
   }
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_journals_from_status_created
+      ON journals (from_account_id, status, created_at);
+    CREATE INDEX IF NOT EXISTS idx_accounts_customer_id
+      ON accounts (customer_id);
+  `);
 }
 
 export function openDb(path: string): Db {

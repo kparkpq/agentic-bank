@@ -1,4 +1,17 @@
-import { getJournal, journalEntries, type Bank } from "@sapiensq/core";
+import { getJournal, getJournalByIdempotency, journalEntries, type Bank } from "@sapiensq/core";
+
+export class ExecutionTimeoutError extends Error {
+  readonly code = "EXECUTION_TIMEOUT";
+  constructor(message = "executor timed out before a definitive result") {
+    super(message);
+    this.name = "ExecutionTimeoutError";
+  }
+}
+
+export type ClosureExecutor = {
+  execute: typeof executeSyntheticTransfer;
+  lookup: (bank: Bank, idempotencyKey: string) => ExecutedTransfer | undefined;
+};
 
 export type ExecutedTransfer = {
   journal_id: string;
@@ -26,18 +39,30 @@ export function executeSyntheticTransfer(
     amount: input.amount,
     idempotency_key: input.idempotency_key,
   });
+  const posted =
+    result.ok &&
+    result.journal_id &&
+    result.journal_status === "POSTED" &&
+    result.decision === "ALLOW" &&
+    result.rule_id === "ALLOW"
+      ? result
+      : result.ok &&
+          result.journal_id &&
+          result.journal_status === "PENDING" &&
+          result.decision === "DUAL_CONTROL"
+        ? bank.approve(result.journal_id)
+        : result;
   if (
-    !result.ok ||
-    result.decision !== "ALLOW" ||
-    result.rule_id !== "ALLOW" ||
-    result.journal_status !== "POSTED" ||
-    !result.journal_id
+    !posted.ok ||
+    posted.journal_status !== "POSTED" ||
+    !posted.journal_id ||
+    (posted.decision !== "ALLOW" && posted.decision !== "OPERATOR_APPROVE")
   ) {
-    throw new Error(result.reason || "synthetic executor did not post an ALLOW transfer");
+    throw new Error(posted.reason || result.reason || "synthetic executor did not post an ALLOW transfer");
   }
 
-  const journal = getJournal(bank.db, result.journal_id);
-  const entries = journalEntries(bank.db, result.journal_id);
+  const journal = getJournal(bank.db, posted.journal_id);
+  const entries = journalEntries(bank.db, posted.journal_id);
   if (
     !journal ||
     journal.status !== "POSTED" ||
@@ -65,3 +90,26 @@ export function executeSyntheticTransfer(
     amount: Number(journal.amount),
   };
 }
+
+export function lookupSyntheticTransfer(bank: Bank, idempotencyKey: string): ExecutedTransfer | undefined {
+  const journal = getJournalByIdempotency(bank.db, idempotencyKey);
+  if (!journal || journal.status !== "POSTED") return undefined;
+  const entries = journalEntries(bank.db, journal.id);
+  if (entries.length !== 2 || entries.some((entry) => entry.posted !== 1)) return undefined;
+  const row = bank.db.prepare("SELECT rowid AS seq FROM journals WHERE id = ?").get(journal.id) as
+    | { seq: number }
+    | undefined;
+  if (!row) return undefined;
+  return {
+    journal_id: journal.id,
+    ledger_sequence: String(row.seq),
+    from_account_id: journal.from_account_id,
+    to_account_id: journal.to_account_id,
+    amount: Number(journal.amount),
+  };
+}
+
+export const defaultClosureExecutor: ClosureExecutor = {
+  execute: executeSyntheticTransfer,
+  lookup: lookupSyntheticTransfer,
+};

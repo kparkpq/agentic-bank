@@ -34,6 +34,7 @@
         "snapshot_authority",
         "decision_authority",
         "capsule_authority",
+        "approver",
         "executor",
         "ledger",
         "closure_authority"
@@ -141,8 +142,8 @@
         "assurance_profile": { "const": "single_process_simulation" },
         "authorities": {
           "type": "array",
-          "minItems": 11,
-          "maxItems": 11,
+          "minItems": 12,
+          "maxItems": 12,
           "items": { "$ref": "#/definitions/authorityBinding" }
         },
         "supported_policy_ids": {
@@ -182,7 +183,24 @@
           "type": "array",
           "minItems": 1,
           "items": { "$ref": "#/definitions/trustedRoot" }
+        },
+        "installed_at": { "$ref": "#/definitions/timestamp" },
+        "key_incidents": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/keyIncident" }
         }
+      }
+    },
+    "keyIncident": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key_id", "issuer", "kind"],
+      "properties": {
+        "key_id": { "$ref": "#/definitions/identifier" },
+        "issuer": { "$ref": "#/definitions/identifier" },
+        "kind": { "enum": ["rotation", "compromise"] },
+        "revoked_at": { "$ref": "#/definitions/timestamp" },
+        "invalid_from": { "$ref": "#/definitions/timestamp" }
       }
     },
     "mandate": {
@@ -465,7 +483,7 @@
         "policy_hash": { "$ref": "#/definitions/hash" },
         "interpreter_hash": { "$ref": "#/definitions/hash" },
         "snapshot_hash": { "$ref": "#/definitions/hash" },
-        "outcome": { "enum": ["ALLOW", "DENY"] },
+        "outcome": { "enum": ["ALLOW", "DENY", "STEP_UP"] },
         "reason_code": {
           "enum": [
             "POLICY_ALLOW",
@@ -482,6 +500,48 @@
           "anyOf": [{ "$ref": "#/definitions/hash" }, { "type": "null" }]
         },
         "authorized_at": { "$ref": "#/definitions/timestamp" }
+      }
+    },
+    "stepUpApproval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "object_type",
+        "protocol_version",
+        "schema_version",
+        "issuer",
+        "key_id",
+        "issued_at",
+        "manifest_version",
+        "manifest_hash",
+        "trust_epoch",
+        "approval_id",
+        "action_hash",
+        "decision_hash",
+        "approved_effect_hash",
+        "requester_id",
+        "approver_id",
+        "not_before",
+        "expires_at"
+      ],
+      "properties": {
+        "object_type": { "const": "StepUpApproval" },
+        "protocol_version": { "$ref": "#/definitions/protocolVersion" },
+        "schema_version": { "$ref": "#/definitions/schemaVersion" },
+        "issuer": { "$ref": "#/definitions/identifier" },
+        "key_id": { "$ref": "#/definitions/identifier" },
+        "issued_at": { "$ref": "#/definitions/timestamp" },
+        "manifest_version": { "$ref": "#/definitions/identifier" },
+        "manifest_hash": { "$ref": "#/definitions/hash" },
+        "trust_epoch": { "$ref": "#/definitions/identifier" },
+        "approval_id": { "$ref": "#/definitions/identifier" },
+        "action_hash": { "$ref": "#/definitions/hash" },
+        "decision_hash": { "$ref": "#/definitions/hash" },
+        "approved_effect_hash": { "$ref": "#/definitions/hash" },
+        "requester_id": { "$ref": "#/definitions/identifier" },
+        "approver_id": { "$ref": "#/definitions/identifier" },
+        "not_before": { "$ref": "#/definitions/timestamp" },
+        "expires_at": { "$ref": "#/definitions/timestamp" }
       }
     },
     "executionCapsule": {
@@ -634,6 +694,8 @@
         "receipt_body_hash",
         "effect_hash",
         "status",
+        "mutation_count",
+        "action_id",
         "ledger_sequence",
         "observed_at"
       ],
@@ -649,9 +711,15 @@
         "trust_epoch": { "$ref": "#/definitions/identifier" },
         "observation_id": { "$ref": "#/definitions/identifier" },
         "ledger_id": { "$ref": "#/definitions/identifier" },
-        "receipt_body_hash": { "$ref": "#/definitions/hash" },
-        "effect_hash": { "$ref": "#/definitions/hash" },
-        "status": { "const": "POSTED" },
+        "receipt_body_hash": {
+          "anyOf": [{ "$ref": "#/definitions/hash" }, { "type": "null" }]
+        },
+        "effect_hash": {
+          "anyOf": [{ "$ref": "#/definitions/hash" }, { "type": "null" }]
+        },
+        "status": { "enum": ["POSTED", "ABSENT"] },
+        "mutation_count": { "$ref": "#/definitions/nonNegativeInteger" },
+        "action_id": { "$ref": "#/definitions/identifier" },
         "ledger_sequence": { "$ref": "#/definitions/positiveInteger" },
         "observed_at": { "$ref": "#/definitions/timestamp" }
       }
@@ -661,13 +729,20 @@
         "PROPOSED",
         "AUTHORIZED",
         "AUTHORIZATION_DENIED",
+        "STEP_UP_REQUIRED",
+        "APPROVED",
         "EXECUTION_INTENT_RECORDED",
         "EXECUTED",
         "EXECUTION_FAILED",
+        "EXECUTION_UNKNOWN",
         "CANCELLED",
         "EXPIRED",
+        "REVOKED",
         "CLOSED"
       ]
+    },
+    "negativeTerminalReason": {
+      "enum": ["AUTHORIZATION_DENIED", "REVOKED", "EXPIRED", "EXECUTION_FAILED"]
     },
     "mandateEnvelope": {
       "allOf": [
@@ -703,6 +778,12 @@
       "allOf": [
         { "$ref": "#/definitions/signedEnvelope" },
         { "properties": { "body": { "$ref": "#/definitions/authorizationDecision" } } }
+      ]
+    },
+    "approvalEnvelope": {
+      "allOf": [
+        { "$ref": "#/definitions/signedEnvelope" },
+        { "properties": { "body": { "$ref": "#/definitions/stepUpApproval" } } }
       ]
     },
     "capsuleEnvelope": {
@@ -785,6 +866,9 @@
         "interpreter": { "$ref": "#/definitions/interpreterEnvelope" },
         "decision_input": { "$ref": "#/definitions/snapshotEnvelope" },
         "decision": { "$ref": "#/definitions/decisionEnvelope" },
+        "step_up_approval": {
+          "anyOf": [{ "$ref": "#/definitions/approvalEnvelope" }, { "type": "null" }]
+        },
         "capsule": { "$ref": "#/definitions/capsuleEnvelope" },
         "consumption_records": {
           "type": "array",
@@ -806,6 +890,74 @@
       "allOf": [
         { "$ref": "#/definitions/signedEnvelope" },
         { "properties": { "body": { "$ref": "#/definitions/closureProofBody" } } }
+      ]
+    },
+    "negativeClosureProofBody": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "object_type",
+        "protocol_version",
+        "schema_version",
+        "issuer",
+        "key_id",
+        "issued_at",
+        "manifest_version",
+        "manifest_hash",
+        "trust_epoch",
+        "proof_id",
+        "assurance_profile",
+        "terminal_reason",
+        "manifest",
+        "mandate",
+        "action",
+        "effect",
+        "policy",
+        "interpreter",
+        "decision_input",
+        "decision",
+        "step_up_approval",
+        "ledger_observation",
+        "state_path",
+        "closed_at"
+      ],
+      "properties": {
+        "object_type": { "const": "NegativeClosureProof" },
+        "protocol_version": { "$ref": "#/definitions/protocolVersion" },
+        "schema_version": { "$ref": "#/definitions/schemaVersion" },
+        "issuer": { "$ref": "#/definitions/identifier" },
+        "key_id": { "$ref": "#/definitions/identifier" },
+        "issued_at": { "$ref": "#/definitions/timestamp" },
+        "manifest_version": { "$ref": "#/definitions/identifier" },
+        "manifest_hash": { "$ref": "#/definitions/hash" },
+        "trust_epoch": { "$ref": "#/definitions/identifier" },
+        "proof_id": { "$ref": "#/definitions/identifier" },
+        "assurance_profile": { "const": "single_process_simulation" },
+        "terminal_reason": { "$ref": "#/definitions/negativeTerminalReason" },
+        "manifest": { "$ref": "#/definitions/manifestEnvelope" },
+        "mandate": { "$ref": "#/definitions/mandateEnvelope" },
+        "action": { "$ref": "#/definitions/actionEnvelope" },
+        "effect": { "$ref": "#/definitions/transferEffect" },
+        "policy": { "$ref": "#/definitions/policyEnvelope" },
+        "interpreter": { "$ref": "#/definitions/interpreterEnvelope" },
+        "decision_input": { "$ref": "#/definitions/snapshotEnvelope" },
+        "decision": { "$ref": "#/definitions/decisionEnvelope" },
+        "step_up_approval": {
+          "anyOf": [{ "$ref": "#/definitions/approvalEnvelope" }, { "type": "null" }]
+        },
+        "ledger_observation": { "$ref": "#/definitions/observationEnvelope" },
+        "state_path": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/definitions/protocolState" }
+        },
+        "closed_at": { "$ref": "#/definitions/timestamp" }
+      }
+    },
+    "negativeClosureProof": {
+      "allOf": [
+        { "$ref": "#/definitions/signedEnvelope" },
+        { "properties": { "body": { "$ref": "#/definitions/negativeClosureProofBody" } } }
       ]
     }
   }

@@ -1,0 +1,10 @@
+{
+  "object": {
+    "amount": "300000",
+    "currency": "KRW",
+    "nested": { "b": 2, "a": 1 },
+    "unicode": "한글"
+  },
+  "expected_canonical": "{\"amount\":\"300000\",\"currency\":\"KRW\",\"nested\":{\"a\":1,\"b\":2},\"unicode\":\"한글\"}",
+  "expected_sha256_hex": "001be8b01cf2b3523ef24c97895c15756f383e448c4ba192a224477e364131ba"
+}

@@ -6,7 +6,13 @@ import {
   isKrwTransferDescriptorCompatible,
   isMandateValidAtAuthorization,
 } from "./evaluator.js";
-import { isLegalStatePath, isSuccessfulStatePath, SUCCESSFUL_STATE_PATH } from "./state.js";
+import {
+  isLegalStatePath,
+  isNegativeClosedPath,
+  isSuccessfulStatePath,
+  SUCCESSFUL_STATE_PATH,
+  SUCCESSFUL_STEP_UP_STATE_PATH,
+} from "./state.js";
 import { createSyntheticClosureFixture } from "./testing.js";
 
 describe("evaluator and state", () => {
@@ -48,13 +54,11 @@ describe("evaluator and state", () => {
       evaluateKrwTransfer(mandate, action, policy, { ...snapshot, to_owner_customer_id: "other" }).reason_code,
     ).toBe("CROSS_CUSTOMER_TRANSFER");
     expect(
-      evaluateKrwTransfer(
-        mandate,
-        { ...action, transfer: { ...action.transfer, amount: "500000" } },
-        policy,
-        snapshot,
-      ).reason_code,
-    ).toBe("STEP_UP_REQUIRED");
+      evaluateKrwTransfer(mandate, { ...action, transfer: { ...action.transfer, amount: "500000" } }, policy, snapshot),
+    ).toEqual({
+      outcome: "STEP_UP",
+      reason_code: "STEP_UP_REQUIRED",
+    });
   });
 
   it("rejects actions outside mandate scope or time", () => {
@@ -62,10 +66,26 @@ describe("evaluator and state", () => {
     expect(isMandateValidAtAuthorization(mandate, action, "2026-01-01T02:00:00.000Z")).toBe(false);
   });
 
-  it("accepts only the exact success path", () => {
+  it("accepts the exact ALLOW and step-up success paths", () => {
     expect(isSuccessfulStatePath([...SUCCESSFUL_STATE_PATH])).toBe(true);
+    expect(isSuccessfulStatePath([...SUCCESSFUL_STEP_UP_STATE_PATH])).toBe(true);
     expect(isLegalStatePath(["PROPOSED", "AUTHORIZATION_DENIED", "CLOSED"])).toBe(true);
+    expect(isLegalStatePath(["PROPOSED", "STEP_UP_REQUIRED", "APPROVED", "EXECUTION_INTENT_RECORDED", "EXECUTED", "CLOSED"])).toBe(
+      true,
+    );
+    expect(isLegalStatePath(["PROPOSED", "AUTHORIZED", "REVOKED", "CLOSED"])).toBe(true);
+    expect(
+      isLegalStatePath([
+        "PROPOSED",
+        "AUTHORIZED",
+        "EXECUTION_INTENT_RECORDED",
+        "EXECUTION_UNKNOWN",
+        "EXECUTED",
+        "CLOSED",
+      ]),
+    ).toBe(true);
     expect(isSuccessfulStatePath(["PROPOSED", "AUTHORIZATION_DENIED", "CLOSED"])).toBe(false);
+    expect(isNegativeClosedPath(["PROPOSED", "AUTHORIZATION_DENIED", "CLOSED"], "AUTHORIZATION_DENIED")).toBe(true);
     expect(isLegalStatePath(["CLOSED", "PROPOSED"])).toBe(false);
   });
 });

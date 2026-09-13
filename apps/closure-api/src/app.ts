@@ -61,9 +61,32 @@ export function createClosureApp(service: ExecutionClosureService): Hono {
     );
   });
 
+  app.post("/v1/authorizations/:decisionId/approvals", async (c) => {
+    return reply(
+      c,
+      service.approve(
+        c.req.param("decisionId"),
+        idempotencyKey(c.req.header("Idempotency-Key")),
+        c.req.header("X-Approver-Id"),
+      ),
+    );
+  });
+
+  app.post("/v1/mandates/:mandateId/revoke", async (c) => {
+    return reply(c, service.revokeMandate(c.req.param("mandateId"), idempotencyKey(c.req.header("Idempotency-Key"))));
+  });
+
   app.post("/v1/authorizations/:decisionId/commit", async (c) => {
     return reply(c, service.commit(c.req.param("decisionId"), idempotencyKey(c.req.header("Idempotency-Key"))));
   });
+
+  app.post("/v1/authorizations/:decisionId/reconcile", async (c) => {
+    return reply(c, service.reconcile(c.req.param("decisionId"), idempotencyKey(c.req.header("Idempotency-Key"))));
+  });
+
+  app.get("/v1/authorizations/:decisionId", (c) => reply(c, service.authorizationStatus(c.req.param("decisionId"))));
+
+  app.get("/v1/unresolved", (c) => reply(c, service.unresolvedQueue()));
 
   app.get("/v1/proofs/:proofId", (c) => reply(c, service.loadProof(c.req.param("proofId"))));
 

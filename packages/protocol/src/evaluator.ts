@@ -14,14 +14,21 @@ import {
 } from "./types.js";
 
 export interface EvaluatorResult {
-  outcome: "ALLOW" | "DENY";
+  outcome: "ALLOW" | "DENY" | "STEP_UP";
   reason_code: EvaluatorReasonCode;
 }
 
-function deny(reasonCode: Exclude<EvaluatorReasonCode, "POLICY_ALLOW">) {
+function deny(reasonCode: Exclude<EvaluatorReasonCode, "POLICY_ALLOW" | "STEP_UP_REQUIRED">) {
   return {
     outcome: "DENY",
     reason_code: reasonCode,
+  } as const;
+}
+
+function stepUp() {
+  return {
+    outcome: "STEP_UP",
+    reason_code: "STEP_UP_REQUIRED",
   } as const;
 }
 
@@ -101,7 +108,7 @@ export function evaluateKrwTransfer(
     return deny("CROSS_CUSTOMER_TRANSFER");
   }
   if (amount >= BigInt(policy.step_up_threshold)) {
-    return deny("STEP_UP_REQUIRED");
+    return stepUp();
   }
   return {
     outcome: "ALLOW",
