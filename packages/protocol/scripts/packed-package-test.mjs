@@ -27,6 +27,8 @@ try {
     "package/fixtures/reason-codes.json",
     "package/bin/execution-closure-verify.mjs",
     "package/release-manifest.json",
+    "package/LICENSE",
+    "package/README.md",
     "package/src/cli.ts",
   ]) {
     if (!listing.includes(required)) {

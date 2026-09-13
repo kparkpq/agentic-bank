@@ -1,10 +1,23 @@
 {
   "name": "@execution-closure/protocol",
   "version": "0.1.0",
-  "private": true,
+  "description": "Offline types, RFC 8785 canonicalize, and CLI for Execution Closure proofs. Synthetic sandbox only — not a bank.",
+  "license": "MIT",
   "type": "module",
   "engines": {
-    "node": ">=22"
+    "node": ">=22.14"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kparkpq/agentic-bank.git",
+    "directory": "packages/protocol"
+  },
+  "homepage": "https://github.com/kparkpq/agentic-bank/tree/main/packages/protocol",
+  "bugs": {
+    "url": "https://github.com/kparkpq/agentic-bank/issues"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "exports": {
     ".": "./src/index.ts",
@@ -16,6 +29,8 @@
     "execution-closure-verify": "./bin/execution-closure-verify.mjs"
   },
   "files": [
+    "LICENSE",
+    "README.md",
     "bin",
     "fixtures",
     "release-manifest.json",
