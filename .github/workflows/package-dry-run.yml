@@ -41,7 +41,7 @@ jobs:
           shopt -s nullglob
           tarballs=(package-artifacts/*.tgz)
           test "${#tarballs[@]}" -eq 1
-          npm publish --dry-run --ignore-scripts --access restricted \
+          npm publish --dry-run --ignore-scripts --access public \
             "$GITHUB_WORKSPACE/${tarballs[0]}"
       - name: Install packed tarball and verify CLI artifacts
         run: pnpm --filter @execution-closure/protocol packed-test

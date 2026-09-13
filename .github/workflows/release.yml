@@ -1,0 +1,74 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "@execution-closure/protocol@*"
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish-protocol:
+    if: github.repository == 'kparkpq/agentic-bank'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Require a public source repository for npm provenance
+        run: |
+          if [[ "${{ github.event.repository.private }}" == "true" ]]; then
+            echo "::error::npm will not attach provenance to a package built from a private GitHub repository."
+            echo "Make kparkpq/agentic-bank public, or publish this package from a public protocol repository."
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.3
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.14
+          registry-url: https://registry.npmjs.org
+          cache: pnpm
+
+      - name: Require npm CLI that supports trusted publishing
+        run: npm install -g npm@11.5.1
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Align the git tag with package and release manifest versions
+        run: node packages/protocol/scripts/assert-release-tag.mjs
+
+      - name: Build the protocol tarball
+        run: |
+          mkdir -p package-artifacts
+          pnpm --filter @execution-closure/protocol pack \
+            --pack-destination "$GITHUB_WORKSPACE/package-artifacts"
+
+      - name: Install packed tarball and verify CLI artifacts
+        run: pnpm --filter @execution-closure/protocol packed-test
+
+      - name: Publish only the protocol tarball
+        run: |
+          shopt -s nullglob
+          tarballs=(package-artifacts/*.tgz)
+          test "${#tarballs[@]}" -eq 1
+          case "${tarballs[0]}" in
+            *execution-closure-protocol-*) ;;
+            *)
+              echo "refusing to publish unexpected tarball ${tarballs[0]}"
+              exit 1
+              ;;
+          esac
+          name="$(tar -xOf "${tarballs[0]}" package/package.json | node -e 'let s="";process.stdin.on("data",d=>s+=d);process.stdin.on("end",()=>console.log(JSON.parse(s).name))')"
+          test "$name" = "@execution-closure/protocol"
+          npm publish --provenance --access public --ignore-scripts \
+            "$GITHUB_WORKSPACE/${tarballs[0]}"

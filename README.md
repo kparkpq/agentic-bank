@@ -54,7 +54,7 @@ Goldens live in `evals/golden/` including `treasury-idle.json`, `rebalance.json`
 
 Scripted walk (`make walk`): v0 loop plus treasury idle PENDING + rebalance POSTED + shopper KYC stop then sandbox KYC + 한빛 정기예금 enrollment POSTED (no transfer journal) + bookkeeper disclaimer.
 
-GitHub Actions runs the same checks on `main` and pull requests. The package dry-run workflow packs `@sapiensq/core` until `@execution-closure/protocol` exists, then switches to the Protocol package automatically; it never publishes.
+GitHub Actions runs the same checks on `main` and pull requests. The package dry-run workflow packs `@execution-closure/protocol` and never publishes. The release workflow publishes that public package only from an annotated tag `@execution-closure/protocol@<version>`, after the packed-install process test, using npm trusted publishing and provenance. It does not publish on `main`, and it does not publish the Gateway or `apps/api`.
 
 ## Architecture
 
